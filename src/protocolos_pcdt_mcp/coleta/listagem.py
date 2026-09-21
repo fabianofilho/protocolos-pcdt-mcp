@@ -35,7 +35,10 @@ URL_LISTAGEM = (
 )
 URL_STATUS_CSV = "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/CONITEC/csv/pcdt.csv.zip"
 
-USER_AGENT = "protocolos-pcdt-mcp/0.1 (uso pessoal)"
+# Identifica o projeto para quem administra o portal, com link para o repositorio.
+# Um coletor publico anonimo e ma cidadania: se algo incomodar do outro lado,
+# precisa haver como descobrir o que e e falar com quem mantem.
+USER_AGENT = "protocolos-pcdt-mcp/0.1 (+https://github.com/fabianofilho/protocolos-pcdt-mcp)"
 
 _DATA_NA_PORTARIA = re.compile(r"(\d{2}/\d{2}/\d{4})")
 
