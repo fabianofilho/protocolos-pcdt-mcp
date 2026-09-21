@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_prot_vigente ON protocolos (vigente);
 
 
 class BaseIndisponivel(RuntimeError):
-    """A base existe mas está travada — tipicamente uma coleta em curso."""
+    """A base existe mas está travada, tipicamente uma coleta em curso."""
 
 
 def _instalar_fts(conexao: duckdb.DuckDBPyConnection) -> bool:

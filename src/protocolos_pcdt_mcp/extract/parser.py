@@ -1,7 +1,7 @@
 """PDF do protocolo para texto, segmentado por seção quando dá.
 
 A estrutura dos PCDTs varia bastante entre protocolos antigos e novos, então a
-segmentação degrada para texto corrido quando os títulos não são reconhecíveis —
+segmentação degrada para texto corrido quando os títulos não são reconhecíveis,
 guardar o protocolo inteiro sem seções é melhor do que descartá-lo.
 """
 
@@ -48,7 +48,7 @@ def segmentar(texto: str) -> dict[str, str]:
     """Separa o texto pelas seções conhecidas.
 
     Devolve só as seções que foram realmente encontradas. Dicionário vazio
-    significa que o protocolo não seguiu um formato reconhecível — o texto
+    significa que o protocolo não seguiu um formato reconhecível, o texto
     corrido continua disponível.
     """
     marcas: list[tuple[int, str]] = []

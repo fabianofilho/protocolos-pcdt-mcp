@@ -21,7 +21,7 @@ AVISO_BASE_VAZIA = (
     "Rode 'pcdt-cli sync' antes de consultar."
 )
 AVISO_BASE_TRAVADA = (
-    "A base local existe mas não pôde ser lida agora — provavelmente há uma coleta em "
+    "A base local existe mas não pôde ser lida agora, provavelmente há uma coleta em "
     "andamento. Tente de novo em alguns minutos."
 )
 AVISO_LEITURA = (
@@ -194,7 +194,7 @@ async def resumir_conduta(
     elif resultado.fracao_citacao_verificada >= 0.5:
         complemento = (
             f" ATENÇÃO: a citação não aparece contígua no protocolo, embora "
-            f"{int(resultado.fracao_citacao_verificada * 100)}% das frases existam nele — "
+            f"{int(resultado.fracao_citacao_verificada * 100)}% das frases existam nele, "
             "é uma costura de trechos de partes diferentes. Confira no PDF antes de citar."
         )
     else:

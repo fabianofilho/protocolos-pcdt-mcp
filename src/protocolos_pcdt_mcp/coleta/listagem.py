@@ -2,10 +2,10 @@
 
 Duas fontes, confirmadas em 20/09/2026 abrindo as páginas:
 
-1. A tabela de PCDTs do portal da Conitec (gov.br) — nome da condição, portaria
+1. A tabela de PCDTs do portal da Conitec (gov.br): nome da condição, portaria
    com data, link do PDF completo e link do PCDT resumido. É a única que traz os
    PDFs.
-2. O CSV de dados abertos do Ministério da Saúde — nome, status e tipo de cada
+2. O CSV de dados abertos do Ministério da Saúde, nome, status e tipo de cada
    PCDT. Serve para saber a situação (aprovado, em elaboração na Conitec) sem
    depender de interpretar a tabela HTML.
 
@@ -82,7 +82,7 @@ def _data(texto: str) -> date | None:
 def parse_listagem(html: str) -> list[ItemPcdt]:
     """Extrai os PCDTs da tabela do portal.
 
-    A tabela tem linhas separadoras com uma letra só (A, B, C...) — são índices
+    A tabela tem linhas separadoras com uma letra só (A, B, C...), são índices
     alfabéticos, não protocolos, e ficam de fora.
     """
     sopa = BeautifulSoup(html, "html.parser")

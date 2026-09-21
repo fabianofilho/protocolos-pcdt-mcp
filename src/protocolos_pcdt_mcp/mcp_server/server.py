@@ -23,7 +23,7 @@ async def consultar_protocolo(doenca_ou_condicao: str) -> RespostaConsulta:
 
     Devolve nome da condição, status, portaria, link do PDF completo e do PCDT
     resumido, e quais seções foram extraídas. Se houver mais de um protocolo
-    relacionado, devolve todos — a escolha é de quem pergunta.
+    relacionado, devolve todos, a escolha é de quem pergunta.
 
     Args:
         doenca_ou_condicao: nome da doença ou condição, por exemplo "asma".
@@ -37,7 +37,7 @@ async def resumir_conduta(pcdt_id: str, contexto_clinico: str) -> RespostaResumo
     """Resume a conduta de um PCDT para um contexto clínico específico.
 
     Em vez de devolver o protocolo inteiro, extrai a parte que responde ao
-    contexto — por exemplo "paciente com contraindicação a metformina". A
+    contexto, por exemplo "paciente com contraindicação a metformina". A
     resposta traz sempre a citação literal do trecho que sustenta o resumo, e
     diz se essa citação foi de fato encontrada no protocolo.
 

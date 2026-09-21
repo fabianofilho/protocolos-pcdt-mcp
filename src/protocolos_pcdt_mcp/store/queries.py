@@ -29,7 +29,7 @@ def buscar_condicao(
 ) -> list[dict[str, Any]]:
     """Busca por doença ou condição, tolerante a grafia.
 
-    Casa por substring sem acento e sem caixa, e ordena pelo tamanho do nome —
+    Casa por substring sem acento e sem caixa, e ordena pelo tamanho do nome,
     "diabetes" traz "Diabetes Mellitus Tipo 1" antes de nomes longos que apenas
     citam a condição.
     """

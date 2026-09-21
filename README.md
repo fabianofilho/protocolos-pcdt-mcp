@@ -11,7 +11,7 @@ específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
 > - **O resumo é gerado por LLM e é uma ajuda de leitura.** Protocolos têm exceções,
 >   populações específicas e notas de rodapé que um resumo de seis linhas não carrega.
 > - **A citação literal é conferida, mas a interpretação não.** Ver
->   [Limitações conhecidas](#limitações-conhecidas) — há um exemplo real de citação correta
+>   [Limitações conhecidas](#limitações-conhecidas): há um exemplo real de citação correta
 >   com conclusão clínica errada.
 > - **Sem validação clínica.** Não foi avaliado por nenhum órgão e não é dispositivo médico.
 > - Para conduta, leia o protocolo completo. O link vem em toda resposta.
@@ -22,7 +22,7 @@ específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
 | --- | --- | --- |
 | Python | 3.12+ | runtime |
 | [uv](https://docs.astral.sh/uv/) | recente | dependências e venv |
-| Um LLM local com API OpenAI-compatible | — | resumo direcionado |
+| Um LLM local com API OpenAI-compatible | - | resumo direcionado |
 | Espaço em disco | ~1 GB | base DuckDB + PDFs cacheados (protocolos são grandes) |
 
 ## Instalação
@@ -70,7 +70,7 @@ claude mcp add protocolos-pcdt --scope user \
 
 ### `consultar_protocolo(doenca_ou_condicao: str)`
 
-Busca pelo nome da condição; se não achar, procura no texto completo — uma condição pode
+Busca pelo nome da condição; se não achar, procura no texto completo, uma condição pode
 ser tratada dentro do PCDT de outra. Devolve todos os protocolos relacionados.
 
 ```json
@@ -113,7 +113,7 @@ inteiro.
 ## A citação é conferida, não só pedida
 
 O prompt exige a citação literal do trecho que sustenta o resumo. Um modelo pequeno às
-vezes "cita" parafraseando — ou, pior, costura frases reais de partes diferentes do
+vezes "cita" parafraseando, ou, pior, costura frases reais de partes diferentes do
 documento num único bloco de aspas. Então o código confere:
 
 | Campo | O que significa |
@@ -139,7 +139,7 @@ cortar fora a parte relevante.
 
 **A segmentação por seções é heurística.** A estrutura dos PCDTs varia entre protocolos
 antigos e novos. Quando os títulos não são reconhecíveis, `secoes_disponiveis` vem vazio e
-só o texto corrido fica disponível — de propósito, para não inventar estrutura.
+só o texto corrido fica disponível, de propósito, para não inventar estrutura.
 
 **A base começa quase vazia.** Por causa do teto de PDFs por execução, os primeiros syncs
 trazem a listagem completa mas pouco texto. `texto_completo_disponivel` diz quais já têm.
@@ -160,7 +160,7 @@ desatualizados e devolvem 403; os que funcionam terminam em `.zip`.
 - Sem telemetria, sem analytics.
 
 Atenção: o `contexto_clinico` que você digita vai para o seu LLM. Se ele estiver
-hospedado fora da sua máquina, o texto vai junto — este projeto não impede isso, ao
+hospedado fora da sua máquina, o texto vai junto, este projeto não impede isso, ao
 contrário do `revisor-notas-mcp`.
 
 ## Contribuindo
@@ -169,6 +169,6 @@ Veja [CONTRIBUTING.md](CONTRIBUTING.md). Não rode a coleta em loop contra o por
 
 ## Licença e atribuição
 
-[Apache License 2.0](LICENSE) — escolhida por o projeto tocar em conduta clínica.
+[Apache License 2.0](LICENSE): escolhida por o projeto tocar em conduta clínica.
 
 Construído no contexto do [IA.med](https://iamed.cc).
