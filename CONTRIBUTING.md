@@ -38,3 +38,11 @@ nao dimensionados para volume automatizado.
 - Se precisar de uma coleta real durante o desenvolvimento, use os limites que a CLI
   oferece (`pcdt-cli sync --max-pdfs 5`).
 - Um PR que aumente a frequencia de acesso as fontes precisa justificar por que.
+
+## robots.txt
+
+Verificado em 21/09/2026: o `robots.txt` do `www.gov.br` não tem nenhum `Disallow` que
+cubra `/conitec` ou `/midias/protocolos`. As restrições declaradas apontam para
+`/economia`, `/ebserh` e endpoints de formulário.
+
+Se isso mudar, a coleta precisa mudar junto. Não vale contornar.
