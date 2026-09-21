@@ -1,82 +1,174 @@
 # protocolos-pcdt-mcp
 
-Servidor MCP que consulta os PCDTs (Protocolos Clínicos e Diretrizes Terapêuticas)
-vigentes do Ministério da Saúde/Conitec, e resume a conduta direcionada a um contexto
-clínico usando o LLM local.
+Servidor MCP que consulta os PCDTs (Protocolos Clínicos e Diretrizes Terapêuticas) do
+Ministério da Saúde/Conitec e resume a conduta recomendada para um contexto clínico
+específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
 
-## As fontes
+> ### ⚠️ Não substitui o protocolo nem o julgamento clínico
+>
+> - **Não é fonte oficial.** O projeto lê o que a Conitec publica e guarda uma cópia local,
+>   que pode estar defasada em relação ao portal.
+> - **O resumo é gerado por LLM e é uma ajuda de leitura.** Protocolos têm exceções,
+>   populações específicas e notas de rodapé que um resumo de seis linhas não carrega.
+> - **A citação literal é conferida, mas a interpretação não.** Ver
+>   [Limitações conhecidas](#limitações-conhecidas) — há um exemplo real de citação correta
+>   com conclusão clínica errada.
+> - **Sem validação clínica.** Não foi avaliado por nenhum órgão e não é dispositivo médico.
+> - Para conduta, leia o protocolo completo. O link vem em toda resposta.
 
-Confirmadas em 20/09/2026 abrindo as páginas — nenhuma foi deduzida:
+## Requisitos
 
-| Fonte | O que dá | Observação |
+| O quê | Versão | Para quê |
 | --- | --- | --- |
-| [Tabela de PCDTs da Conitec](https://www.gov.br/conitec/pt-br/assuntos/avaliacao-de-tecnologias-em-saude/protocolos-clinicos-e-diretrizes-terapeuticas/pcdt) | Condição, portaria, PDF completo e PCDT resumido | Única com os PDFs; ~150 linhas |
-| CSV de dados abertos do MS | Nome e status de cada PCDT | Descoberto na pesquisa; a spec não o previa |
+| Python | 3.12+ | runtime |
+| [uv](https://docs.astral.sh/uv/) | recente | dependências e venv |
+| Um LLM local com API OpenAI-compatible | — | resumo direcionado |
+| Espaço em disco | ~1 GB | base DuckDB + PDFs cacheados (protocolos são grandes) |
 
-O CSV vive em `s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/CONITEC/csv/pcdt.csv.zip` —
-os links `.csv` que o portal exibe estão desatualizados e devolvem 403; os que funcionam
-terminam em `.zip`.
-
-## Rodando
+## Instalação
 
 ```bash
+git clone https://github.com/fabianofilho/protocolos-pcdt-mcp.git
+cd protocolos-pcdt-mcp
 uv sync
 cp .env.example .env
+```
+
+## Configuração
+
+| Variável | Padrão | Observação |
+| --- | --- | --- |
+| `QWEN_ENDPOINT` | `http://127.0.0.1:8080/v1` | llama.cpp. Ollama: `:11434/v1`. LM Studio: `:1234/v1` |
+| `QWEN_MODEL` | `local-model` | llama.cpp e LM Studio aceitam qualquer nome |
+| `DUCKDB_PATH` | `./data/pcdt.duckdb` | base local |
+| `COLETA_DELAY_SEGUNDOS` | `1` | intervalo entre downloads de PDF |
+| `SYNC_HORA_LOCAL` | `02:40` | horário fixo da coleta agendada |
+
+```bash
 uv run pcdt-cli llm                 # confirma o LLM local
 uv run pcdt-cli sync --max-pdfs 5   # teste rápido
 uv run pcdt-cli sync                # coleta (20 PDFs por execução, por padrão)
 uv run pcdt-cli consultar asma
 uv run pcdt-cli resumir "asma" "paciente gestante"
-uv run protocolos-pcdt-mcp          # servidor MCP no stdio
 ```
 
-A coleta baixa no máximo `--max-pdfs` protocolos por execução: são ~150 PDFs grandes, e a
+A coleta baixa no máximo `--max-pdfs` protocolos por execução: são ~130 PDFs grandes, e a
 ideia é a base completar ao longo de algumas noites em vez de sobrecarregar o portal numa
 única. O texto já coletado é preservado entre execuções.
 
-## Tools
+### Ligando ao Claude Code
 
-### `consultar_protocolo(doenca_ou_condicao)`
+```bash
+claude mcp add protocolos-pcdt --scope user \
+  -e DUCKDB_PATH=/caminho/para/protocolos-pcdt-mcp/data/pcdt.duckdb \
+  -e QWEN_ENDPOINT=http://127.0.0.1:8080/v1 \
+  -e QWEN_MODEL=local-model \
+  -- uv --directory /caminho/para/protocolos-pcdt-mcp run protocolos-pcdt-mcp
+```
+
+## Uso
+
+### `consultar_protocolo(doenca_ou_condicao: str)`
+
 Busca pelo nome da condição; se não achar, procura no texto completo — uma condição pode
-ser tratada dentro do PCDT de outra. Devolve todos os protocolos relacionados, cada um com
-o link do PDF oficial e as seções extraídas.
+ser tratada dentro do PCDT de outra. Devolve todos os protocolos relacionados.
 
-### `resumir_conduta(pcdt_id, contexto_clinico)`
-Extrai do protocolo a parte que responde ao contexto ("paciente com contraindicação a
-metformina"), em vez de devolver o documento inteiro.
+```json
+{
+  "termo": "acidentes ofídicos",
+  "total": 1,
+  "resultados": [
+    {
+      "identificador": "acidentes ofídicos",
+      "condicao": "Acidentes Ofídicos",
+      "status": "Conitec",
+      "portaria": "Portaria SECTICS/MS nº 83 - 07/10/2025",
+      "url_pdf": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt_acidentes_ofidicos_final.pdf/@@display-file/file",
+      "secoes_disponiveis": ["introducao", "classificacao", "diagnostico", "tratamento", "monitoramento"],
+      "texto_completo_disponivel": true
+    }
+  ]
+}
+```
 
-## A citação literal é conferida, não só pedida
+### `resumir_conduta(pcdt_id: str, contexto_clinico: str)`
+
+Extrai do protocolo a parte que responde ao contexto, em vez de devolver o documento
+inteiro.
+
+```json
+{
+  "condicao": "Acidentes Ofídicos",
+  "resumo": {
+    "resumo": "O paciente deve receber soroterapia antiveneno específica para o tipo de envenenamento.",
+    "secao_origem": "1.3. Acesso a soroterapia antiveneno",
+    "citacao_literal": "…é necessário utilizar a soroterapia antiveneno específica, correspondente ao tipo de envenenamento…",
+    "citacao_confere": true,
+    "fracao_citacao_verificada": 1.0
+  },
+  "url_pdf": "https://www.gov.br/conitec/..."
+}
+```
+
+## A citação é conferida, não só pedida
 
 O prompt exige a citação literal do trecho que sustenta o resumo. Um modelo pequeno às
-vezes "cita" parafraseando, então o código **confere se a citação existe mesmo no texto do
-protocolo** e devolve `citacao_confere: true/false`. Quando é falso, o aviso diz para
-tratar com desconfiança.
+vezes "cita" parafraseando — ou, pior, costura frases reais de partes diferentes do
+documento num único bloco de aspas. Então o código confere:
 
-Isso transforma uma promessa de prompt em um fato verificável — que é a diferença entre
-uma ajuda de leitura e uma alucinação com aparência de citação.
+| Campo | O que significa |
+| --- | --- |
+| `citacao_confere` | a citação existe inteira e **contígua** no protocolo |
+| `fracao_citacao_verificada` | quanto dela existe, frase a frase (0 a 1) |
 
-A resposta traz dois campos:
+Fração alta com `citacao_confere: false` é o caso mais traiçoeiro: parece legítimo na
+leitura e não é. Isso aconteceu no primeiro teste real deste projeto, com o PCDT de
+Acidentes Ofídicos, e é por isso que os dois campos existem.
 
-- `citacao_confere` — a citação existe inteira e **contígua** no protocolo;
-- `fracao_citacao_verificada` — quanto dela existe, frase a frase.
+## Limitações conhecidas
 
-Fração alta com `citacao_confere: false` é o caso mais traiçoeiro: o modelo costurou
-frases reais de partes diferentes do documento num único bloco de aspas. Parece legítimo
-na leitura e não é. Isso aconteceu de verdade no primeiro teste com o PCDT de Acidentes
-Ofídicos, e é por isso que os dois campos existem.
+**Conferir a citação não pega erro de interpretação.** Num teste com "paciente picado por
+cascavel", o modelo local devolveu uma citação **real e contígua** do protocolo e mesmo
+assim classificou o caso como envenenamento **botrópico**, quando cascavel é **crotálico**.
+A citação estava certa; o raciocínio em cima dela, errado. Esta é a limitação mais
+importante do projeto.
 
-## O que a conferência NÃO pega
+**O protocolo é truncado antes de ir para o modelo.** Protocolos passam de 200 mil
+caracteres; o recorte prioriza a vizinhança das palavras do contexto perguntado, mas pode
+cortar fora a parte relevante.
 
-Testando com "paciente picado por cascavel", o Qwen local devolveu uma citação **real e
-contígua** do protocolo — e mesmo assim classificou o caso como envenenamento
-**botrópico**, quando cascavel é **crotálico**. A citação estava certa; o raciocínio em
-cima dela, errado.
+**A segmentação por seções é heurística.** A estrutura dos PCDTs varia entre protocolos
+antigos e novos. Quando os títulos não são reconhecíveis, `secoes_disponiveis` vem vazio e
+só o texto corrido fica disponível — de propósito, para não inventar estrutura.
 
-Conferir a citação elimina a alucinação de fonte, não o erro de interpretação. Por isso a
-tool é uma ajuda de leitura, e o link do PDF vem em toda resposta.
+**A base começa quase vazia.** Por causa do teto de PDFs por execução, os primeiros syncs
+trazem a listagem completa mas pouco texto. `texto_completo_disponivel` diz quais já têm.
 
-## O resumo não substitui o protocolo
+**PDFs digitalizados não têm camada de texto.** Nesses casos o registro fica com
+`extracao_incompleta: true` e só os metadados.
 
-Protocolos mudam, têm exceções e notas de rodapé que um resumo de seis linhas não carrega.
-Um resumo com citação conferida é um bom ponto de partida para abrir o documento, nunca
-um substituto dele.
+**As URLs das fontes podem mudar.** Estão em `coleta/listagem.py`, confirmadas em
+20/09/2026. Observação prática: os links `.csv` que o portal de dados abertos exibe estão
+desatualizados e devolvem 403; os que funcionam terminam em `.zip`.
+
+## Privacidade
+
+- **Sai da máquina:** requisições ao `gov.br/conitec` e ao bucket de dados abertos do
+  Ministério da Saúde, para a listagem e os PDFs públicos.
+- **Não sai:** a condição e o contexto clínico que você consulta ficam entre a base local
+  e o seu LLM local.
+- Sem telemetria, sem analytics.
+
+Atenção: o `contexto_clinico` que você digita vai para o seu LLM. Se ele estiver
+hospedado fora da sua máquina, o texto vai junto — este projeto não impede isso, ao
+contrário do `revisor-notas-mcp`.
+
+## Contribuindo
+
+Veja [CONTRIBUTING.md](CONTRIBUTING.md). Não rode a coleta em loop contra o portal.
+
+## Licença e atribuição
+
+[Apache License 2.0](LICENSE) — escolhida por o projeto tocar em conduta clínica.
+
+Construído no contexto do [IA.med](https://iamed.cc).
