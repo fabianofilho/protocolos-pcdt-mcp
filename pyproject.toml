@@ -10,7 +10,6 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "pdfplumber>=0.11",
     "duckdb>=1.1",
-    "apscheduler>=3.10",
     "typer>=0.15",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -52,5 +51,5 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "pdfplumber.*", "bs4.*"]
+module = ["pdfplumber.*", "bs4.*"]
 ignore_missing_imports = true

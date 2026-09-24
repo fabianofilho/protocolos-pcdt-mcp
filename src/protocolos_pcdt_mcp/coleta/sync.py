@@ -17,12 +17,6 @@ from protocolos_pcdt_mcp.store.queries import gravar, marcar_ausentes_como_subst
 
 logger = logging.getLogger(__name__)
 
-# Espalha o disparo dentro de meia hora. Num projeto publico isso nao e
-# detalhe: horario fixo resolve a concorrencia na maquina de quem roda, mas
-# cria concorrencia do outro lado se varias pessoas usarem o padrao do
-# .env.example e baterem no mesmo servidor no mesmo minuto.
-JITTER_SEGUNDOS = 1800
-
 
 @dataclass(frozen=True)
 class ResultadoColeta:
@@ -124,26 +118,3 @@ async def coletar(
     return ResultadoColeta(
         novos=novos, atualizados=atualizados, pdfs_baixados=baixados, despromovidos=despromovidos
     )
-
-
-def agendar_coleta(caminho_db: str, hora_local: str) -> Any:
-    """Agenda a coleta num horário fixo e devolve o scheduler iniciado."""
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-    from protocolos_pcdt_mcp.store.db import conectar, reindexar_fts
-
-    async def tarefa() -> None:
-        try:
-            with conectar(caminho_db) as conexao:
-                await coletar(conexao)
-                reindexar_fts(conexao)
-        except Exception:  # noqa: BLE001 - o agendador não pode morrer por uma coleta
-            logger.exception("coleta de PCDTs falhou")
-
-    hora, minuto = (int(p) for p in hora_local.split(":"))
-    scheduler = AsyncIOScheduler()
-    # jitter: ver JITTER_SEGUNDOS no topo do modulo
-    scheduler.add_job(tarefa, "cron", hour=hora, minute=minuto, jitter=JITTER_SEGUNDOS)
-    scheduler.start()
-    logger.info("coleta de PCDTs agendada diariamente às %s", hora_local)
-    return scheduler

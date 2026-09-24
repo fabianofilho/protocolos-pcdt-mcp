@@ -1,0 +1,17 @@
+[Unit]
+Description=Coleta os PCDTs da Conitec
+Documentation=https://github.com/fabianofilho/protocolos-pcdt-mcp
+# Sem rede, o sync falha e o timer tenta de novo no dia seguinte.
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Supoe o clone em ~/protocolos-pcdt-mcp e o uv em ~/.local/bin. Ajuste os
+# caminhos se o seu for outro.
+WorkingDirectory=%h/protocolos-pcdt-mcp
+ExecStart=%h/.local/bin/uv --directory %h/protocolos-pcdt-mcp run pcdt-cli sync
+# O sync baixa e extrai ate 20 PDFs grandes e pode ficar preso numa rede ruim.
+TimeoutStartSec=3600
+# Nao deixa o sync competir com o uso interativo da maquina.
+Nice=10
+IOSchedulingClass=idle

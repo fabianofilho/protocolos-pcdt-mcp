@@ -17,8 +17,6 @@ class Config(BaseSettings):
 
     duckdb_path: Path = Field(default=Path("./data/pcdt.duckdb"))
     coleta_delay_segundos: float = Field(default=1.0, ge=0.0)
-    # Horário fixo: os syncs locais são escalonados de madrugada.
-    sync_hora_local: str = Field(default="02:40", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     log_level: str = Field(default="INFO")
 
 

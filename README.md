@@ -42,7 +42,6 @@ cp .env.example .env
 | `QWEN_MODEL` | `local-model` | llama.cpp e LM Studio aceitam qualquer nome |
 | `DUCKDB_PATH` | `./data/pcdt.duckdb` | base local |
 | `COLETA_DELAY_SEGUNDOS` | `1` | intervalo entre downloads de PDF |
-| `SYNC_HORA_LOCAL` | `02:40` | horário fixo da coleta agendada |
 
 ```bash
 uv run pcdt-cli llm                 # confirma o LLM local
@@ -55,6 +54,28 @@ uv run pcdt-cli resumir "asma" "paciente gestante"
 A coleta baixa no máximo `--max-pdfs` protocolos por execução: são ~130 PDFs grandes, e a
 ideia é a base completar ao longo de algumas noites em vez de sobrecarregar o portal numa
 única. O texto já coletado é preservado entre execuções.
+
+### Sync diário com systemd
+
+O servidor MCP não agenda nada sozinho. O caminho oficial para manter a base atualizada é o
+timer systemd de usuário versionado em [`deploy/systemd/`](deploy/systemd/): ele roda
+`pcdt-cli sync` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera o disparo
+perdido se a máquina estava desligada.
+
+As units supõem o clone em `~/protocolos-pcdt-mcp` e o `uv` em `~/.local/bin/uv`. Se os
+seus caminhos forem outros, edite `WorkingDirectory` e `ExecStart` antes de copiar.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/protocolos-pcdt-sync.service deploy/systemd/protocolos-pcdt-sync.timer \
+  ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now protocolos-pcdt-sync.timer
+systemctl --user list-timers protocolos-pcdt-sync.timer   # próximo disparo
+journalctl --user -u protocolos-pcdt-sync.service         # saída dos syncs
+```
+
+Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
 
 ### Ligando ao Claude Code
 
