@@ -241,7 +241,8 @@ contrário do `revisor-notas-mcp`.
 
 A versão 0.1.0 tira a nota de revisão do identificador e cria a coluna
 `nota_atualizacao`. A migração roda no próximo `pcdt-cli sync` (ou em qualquer abertura
-da base para escrita) e preserva o texto já extraído. Até lá, o servidor continua lendo a
+da base para escrita, como `pcdt-cli schema`), preserva o texto já extraído e refaz o
+índice FTS. Até lá, o servidor continua lendo a
 base antiga: os identificadores aparecem com a nota, e `resumir_conduta` aceita o nome
 sem ela.
 

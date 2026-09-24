@@ -6,8 +6,8 @@ from pathlib import Path
 
 import duckdb
 
-from protocolos_pcdt_mcp.store.db import aplicar_schema, conectar
-from protocolos_pcdt_mcp.store.queries import por_identificador
+from protocolos_pcdt_mcp.store.db import aplicar_schema, conectar, reindexar_fts
+from protocolos_pcdt_mcp.store.queries import buscar_no_texto, por_identificador
 
 ANTIGO = "asma (anexo alterado em 04/09/2026)"
 
@@ -57,6 +57,36 @@ def test_migracao_e_idempotente(tmp_path: Path) -> None:
     with conectar(caminho) as conexao:
         total = conexao.execute("SELECT count(*) FROM protocolos").fetchone()
     assert total == (2,)
+
+
+def test_migracao_reindexa_o_fts(tmp_path: Path) -> None:
+    """Bug real: o índice seguia com os ids antigos e a busca no texto não achava a asma."""
+    caminho = tmp_path / "v1.duckdb"
+    _base_v1(caminho)
+    conexao = duckdb.connect(str(caminho))
+    assert reindexar_fts(conexao)
+    assert [r["identificador"] for r in buscar_no_texto(conexao, "asma")] == [ANTIGO]
+    conexao.close()
+
+    with conectar(caminho):
+        pass
+    with conectar(caminho, somente_leitura=True) as conexao:
+        assert [r["identificador"] for r in buscar_no_texto(conexao, "asma")] == ["asma"]
+
+
+def test_indice_fts_velho_de_base_ja_migrada_e_refeito(tmp_path: Path) -> None:
+    """Base migrada por uma versão que não reindexava: a abertura para escrita conserta."""
+    caminho = tmp_path / "v1.duckdb"
+    _base_v1(caminho)
+    conexao = duckdb.connect(str(caminho))
+    reindexar_fts(conexao)
+    conexao.execute(
+        "UPDATE protocolos SET identificador = 'asma' WHERE identificador = ?", [ANTIGO]
+    )
+    conexao.close()
+
+    with conectar(caminho) as conexao:
+        assert [r["identificador"] for r in buscar_no_texto(conexao, "asma")] == ["asma"]
 
 
 def test_migracao_com_registro_limpo_ja_existente(db: duckdb.DuckDBPyConnection) -> None:

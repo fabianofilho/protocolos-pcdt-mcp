@@ -72,6 +72,18 @@ def reindexar_fts(conexao: duckdb.DuckDBPyConnection) -> bool:
         return False
 
 
+def _indice_fts_desatualizado(conexao: duckdb.DuckDBPyConnection) -> bool:
+    """Se o índice FTS existe e aponta para identificadores que não estão na tabela."""
+    try:
+        linha = conexao.execute(
+            "SELECT count(*) FROM fts_main_protocolos.docs "
+            "WHERE name NOT IN (SELECT identificador FROM protocolos)"
+        ).fetchone()
+    except duckdb.Error:
+        return False
+    return bool(linha and linha[0])
+
+
 def migrar_identificadores(conexao: duckdb.DuckDBPyConnection) -> int:
     """Tira a nota de revisão dos identificadores gravados antes da versão 2.
 
@@ -119,7 +131,12 @@ def aplicar_schema(conexao: duckdb.DuckDBPyConnection) -> None:
     conexao.execute(_DDL)
     # Bases criadas na versão 1 não têm a coluna.
     conexao.execute("ALTER TABLE protocolos ADD COLUMN IF NOT EXISTS nota_atualizacao VARCHAR")
-    migrar_identificadores(conexao)
+    migrados = migrar_identificadores(conexao)
+    # O índice FTS guarda o identificador: depois de renomear, match_bm25 devolve
+    # NULL para os renomeados e a busca no texto deixa de achá-los até o próximo
+    # sync terminar. A checagem do índice cobre bases já migradas sem reindexar.
+    if migrados or _indice_fts_desatualizado(conexao):
+        reindexar_fts(conexao)
     conexao.execute(
         "INSERT INTO schema_meta VALUES ('versao', ?) "
         "ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor",
