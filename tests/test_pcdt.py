@@ -309,3 +309,99 @@ async def test_resumir_aceita_id_sem_nota_de_revisao(caminho_db: str) -> None:
     )
     assert resposta.identificador == "asma (anexo alterado em 04/09/2026)"
     assert resposta.aviso is not None and "ainda não foi coletado" in resposta.aviso
+
+
+# --- sinônimos e origem do resultado -------------------------------------------
+
+
+def _nomes(db: duckdb.DuckDBPyConnection, termo: str) -> list[str]:
+    return [r["identificador"] for r in buscar_condicao(db, termo)]
+
+
+def _base_com_diabetes(db: duckdb.DuckDBPyConnection) -> None:
+    gravar(
+        db,
+        [
+            _registro(identificador=nome.lower(), condicao=nome)
+            for nome in (
+                "Diabetes Insípido",
+                "Diabete Melito Tipo 1",
+                "Diabete Melito Tipo 2",
+                "Hipertensão Arterial Sistêmica",
+                "Hipertensão Pulmonar",
+                "Doença Pulmonar Obstrutiva Crônica",
+                "Glaucoma",
+            )
+        ],
+    )
+
+
+def test_diabetes_acha_dm1_e_dm2(db: duckdb.DuckDBPyConnection) -> None:
+    """Bug real: 'diabetes' só trazia 'diabetes insípido'."""
+    _base_com_diabetes(db)
+    assert set(_nomes(db, "diabetes")) == {
+        "diabetes insípido",
+        "diabete melito tipo 1",
+        "diabete melito tipo 2",
+    }
+
+
+def test_diabetes_mellitus_acha_diabete_melito(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "Diabetes Mellitus") == ["diabete melito tipo 1", "diabete melito tipo 2"]
+    assert _nomes(db, "diabetes tipo 2") == ["diabete melito tipo 2"]
+    assert _nomes(db, "DM2") == ["diabete melito tipo 2"]
+
+
+def test_siglas_viram_nome_por_extenso(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "HAS") == ["hipertensão arterial sistêmica"]
+    assert _nomes(db, "dpoc") == ["doença pulmonar obstrutiva crônica"]
+
+
+def test_palavras_em_qualquer_ordem(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "pulmonar hipertensão") == ["hipertensão pulmonar"]
+
+
+async def test_resultado_so_do_texto_vem_marcado_e_com_aviso(caminho_db: str) -> None:
+    """Bug real: 'depressão' devolvia Alzheimer e Parkinson como se fossem o PCDT dela."""
+    with conectar(caminho_db) as conexao:
+        gravar(
+            conexao,
+            [
+                _registro(
+                    identificador="doença de parkinson",
+                    condicao="Doença de Parkinson",
+                    texto_completo="Sintomas não motores incluem depressão e ansiedade.",
+                )
+            ],
+        )
+    resposta = await consultar_protocolo("depressão", caminho_db=caminho_db)
+    assert resposta.total == 1
+    assert resposta.resultados[0].origem == "texto"
+    assert resposta.aviso is not None and "apenas citam o termo" in resposta.aviso
+
+
+async def test_resultado_pelo_nome_vem_marcado_sem_aviso(caminho_db: str) -> None:
+    with conectar(caminho_db) as conexao:
+        gravar(conexao, [_registro()])
+    resposta = await consultar_protocolo("asma", caminho_db=caminho_db)
+    assert resposta.resultados[0].origem == "nome"
+    assert resposta.aviso is None
+
+
+def test_busca_casa_no_comeco_da_palavra(db: duckdb.DuckDBPyConnection) -> None:
+    """Bug real: 'asma' trazia 'vasculite ... anti-citoplasma de neutrófilos'."""
+    gravar(
+        db,
+        [
+            _registro(identificador="asma", condicao="Asma"),
+            _registro(
+                identificador="vasculite",
+                condicao="Vasculite Associada aos Anticorpos Anti-citoplasma de Neutrófilos",
+            ),
+        ],
+    )
+    assert _nomes(db, "asma") == ["asma"]
+    assert _nomes(db, "citoplasma") == ["vasculite"]

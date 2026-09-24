@@ -54,3 +54,52 @@ def chave_nome(texto: str) -> str:
     """
     nome, _ = separar_nota(texto)
     return " ".join(re.sub(r"[^a-z0-9]+", " ", sem_acento(nome).lower()).split())
+
+
+# Siglas comuns que não aparecem no nome dos PCDTs. A sigla inteira é trocada
+# pelo nome como a Conitec escreve (sem acento).
+_SIGLAS = {
+    "has": "hipertensao arterial sistemica",
+    "dpoc": "doenca pulmonar obstrutiva cronica",
+    "dm": "diabete melito",
+    "dm1": "diabete melito tipo 1",
+    "dm2": "diabete melito tipo 2",
+    "tdah": "transtorno do deficit de atencao",
+    "les": "lupus eritematoso sistemico",
+    "ela": "esclerose lateral amiotrofica",
+    "ic": "insuficiencia cardiaca",
+    "icc": "insuficiencia cardiaca",
+    "drc": "doenca renal cronica",
+    "tea": "transtorno do espectro do autismo",
+    "hpn": "hemoglobinuria paroxistica noturna",
+    "ame": "atrofia muscular espinhal",
+    "lmc": "leucemia mieloide cronica",
+    "sop": "sindrome de ovarios policisticos",
+    "gist": "tumor do estroma gastrointestinal",
+    "dmri": "degeneracao macular relacionada a idade",
+    "aids": "hiv",
+}
+
+# Grafias diferentes da mesma palavra. A Conitec escreve "diabete melito".
+_VARIANTES = {
+    "diabetes": ("diabete",),
+    "mellitus": ("melito", "mellitus"),
+    "melitus": ("melito", "mellitus"),
+    "melito": ("melito", "mellitus"),
+}
+
+_PALAVRAS_VAZIAS = frozenset(
+    "a o as os e de da do das dos em na no nas nos com para por pelo pela ao aos".split()
+)
+
+
+def termos_de_busca(termo: str) -> list[tuple[str, ...]]:
+    """Termo digitado para uma lista de palavras, cada uma com suas grafias.
+
+    Todas as palavras precisam aparecer no nome, em qualquer ordem; basta uma
+    das grafias de cada palavra. Siglas conhecidas viram o nome por extenso.
+    """
+    base = " ".join(re.sub(r"[^a-z0-9]+", " ", sem_acento(termo).lower()).split())
+    base = _SIGLAS.get(base, base)
+    palavras = [p for p in base.split() if p not in _PALAVRAS_VAZIAS]
+    return [_VARIANTES.get(p, (p,)) for p in palavras]

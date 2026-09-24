@@ -3,19 +3,34 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import duckdb
 
-from protocolos_pcdt_mcp.nomes import chave_nome
+from protocolos_pcdt_mcp.nomes import chave_nome, termos_de_busca
 
 logger = logging.getLogger(__name__)
 
-_COLUNAS = (
+_COLUNAS_V1 = (
     "identificador, condicao, status, portaria, data_portaria, url_pdf, url_resumido, "
-    "texto_completo, secoes_json, vigente, substituido_por, extracao_incompleta, "
-    "nota_atualizacao"
+    "texto_completo, secoes_json, vigente, substituido_por, extracao_incompleta"
 )
+
+
+def _colunas(conexao: duckdb.DuckDBPyConnection) -> str:
+    """Colunas do SELECT, tolerando uma base da versão 1 aberta só para leitura.
+
+    O servidor MCP abre a base em read_only e não migra nada; até o próximo sync
+    a base pode não ter ``nota_atualizacao``.
+    """
+    tem_nota = conexao.execute(
+        "SELECT count(*) FROM information_schema.columns "
+        "WHERE table_name = 'protocolos' AND column_name = 'nota_atualizacao'"
+    ).fetchone()
+    if tem_nota and tem_nota[0]:
+        return f"{_COLUNAS_V1}, nota_atualizacao"
+    return f"{_COLUNAS_V1}, NULL AS nota_atualizacao"
 
 
 def _para_dicts(resultado: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
@@ -30,25 +45,39 @@ def buscar_condicao(
     limite: int = 10,
     apenas_vigentes: bool = True,
 ) -> list[dict[str, Any]]:
-    """Busca por doença ou condição, tolerante a grafia.
+    """Busca por doença ou condição no nome do PCDT, tolerante a grafia.
 
-    Casa por substring sem acento e sem caixa, e ordena pelo tamanho do nome,
-    "diabetes" traz "Diabetes Mellitus Tipo 1" antes de nomes longos que apenas
-    citam a condição.
+    Ignora acento e caixa, exige que todas as palavras do termo apareçam no nome
+    em qualquer ordem, sempre no começo de uma palavra ("asma" não casa com
+    "citoplasma"), troca siglas comuns pelo nome por extenso ("HAS", "DPOC",
+    "DM2") e aceita grafias diferentes ("diabetes mellitus" acha "diabete
+    melito tipo 1" e "tipo 2"). Ordena pelo tamanho do nome, então o PCDT da
+    condição vem antes de nomes longos que apenas a mencionam.
     """
+    grupos = termos_de_busca(termo)
+    if not grupos:
+        return []
+    condicoes: list[str] = []
+    parametros: list[Any] = []
+    for grafias in grupos:
+        condicoes.append(
+            "("
+            + " OR ".join("regexp_matches(strip_accents(lower(condicao)), ?)" for _ in grafias)
+            + ")"
+        )
+        parametros.extend(f"(^|[^a-z0-9]){re.escape(g)}" for g in grafias)
     filtro = "AND vigente" if apenas_vigentes else ""
-    padrao = f"%{termo.strip()}%"
     return _para_dicts(
         conexao.execute(
             f"""
-            SELECT {_COLUNAS}
+            SELECT {_colunas(conexao)}
             FROM protocolos
-            WHERE strip_accents(lower(condicao)) LIKE strip_accents(lower(?))
+            WHERE {" AND ".join(condicoes)}
               {filtro}
             ORDER BY length(condicao), condicao
             LIMIT ?
             """,
-            [padrao, limite],
+            [*parametros, limite],
         )
     )
 
@@ -60,11 +89,12 @@ def buscar_no_texto(
     limite: int = 10,
 ) -> list[dict[str, Any]]:
     """Busca no texto completo, via FTS quando disponível."""
+    colunas = _colunas(conexao)
     try:
         return _para_dicts(
             conexao.execute(
                 f"""
-                SELECT {_COLUNAS}, fts_main_protocolos.match_bm25(identificador, ?) AS relevancia
+                SELECT {colunas}, fts_main_protocolos.match_bm25(identificador, ?) AS relevancia
                 FROM protocolos
                 WHERE relevancia IS NOT NULL AND vigente
                 ORDER BY relevancia DESC
@@ -80,7 +110,7 @@ def buscar_no_texto(
     return _para_dicts(
         conexao.execute(
             f"""
-            SELECT {_COLUNAS}, NULL AS relevancia
+            SELECT {colunas}, NULL AS relevancia
             FROM protocolos
             WHERE lower(coalesce(texto_completo, '')) LIKE lower(?) AND vigente
             ORDER BY length(condicao)
@@ -102,7 +132,7 @@ def por_identificador(
     """
     linhas = _para_dicts(
         conexao.execute(
-            f"SELECT {_COLUNAS} FROM protocolos WHERE identificador = ?", [identificador]
+            f"SELECT {_colunas(conexao)} FROM protocolos WHERE identificador = ?", [identificador]
         )
     )
     if linhas:

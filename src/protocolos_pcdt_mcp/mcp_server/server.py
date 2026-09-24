@@ -21,9 +21,18 @@ mcp = MCPServer("protocolos-pcdt-mcp", version="0.1.0")
 async def consultar_protocolo(doenca_ou_condicao: str) -> RespostaConsulta:
     """Consulta o PCDT vigente do Ministério da Saúde para uma doença ou condição.
 
-    Devolve nome da condição, status, portaria, link do PDF completo e do PCDT
-    resumido, e quais seções foram extraídas. Se houver mais de um protocolo
-    relacionado, devolve todos, a escolha é de quem pergunta.
+    Procura primeiro no nome dos PCDTs, sem acento, com as palavras em qualquer
+    ordem e aceitando algumas siglas ("HAS", "DPOC", "DM2") e a grafia "diabetes
+    mellitus". Se o nome não casar, procura o termo no texto dos protocolos e
+    devolve até 5, com origem="texto" e um aviso: esses só citam o termo e
+    muitas vezes não são o PCDT da condição.
+
+    Cada resultado traz identificador (use em resumir_conduta), nome da
+    condição, portaria, link do PDF completo e do PCDT resumido, seções extraídas
+    e se o texto completo já foi coletado. O status vem do CSV de dados abertos
+    e só existe para parte dos PCDTs; null não quer dizer que o protocolo não
+    está aprovado. Se houver mais de um protocolo pelo nome, devolve todos (até
+    10), a escolha é de quem pergunta.
 
     Args:
         doenca_ou_condicao: nome da doença ou condição, por exemplo "asma".
@@ -43,8 +52,12 @@ async def resumir_conduta(pcdt_id: str, contexto_clinico: str) -> RespostaResumo
 
     É ajuda de leitura, não substitui o protocolo: o link do PDF vem junto.
 
+    Precisa de um LLM local configurado e do texto completo do protocolo já
+    coletado; sem isso, devolve só o link do PDF e um aviso.
+
     Args:
-        pcdt_id: identificador devolvido por consultar_protocolo.
+        pcdt_id: identificador devolvido por consultar_protocolo. O nome da
+            condição sem a nota de revisão também é aceito, por exemplo "asma".
         contexto_clinico: a situação concreta sobre a qual se quer a conduta.
     """
     config = carregar_config()
