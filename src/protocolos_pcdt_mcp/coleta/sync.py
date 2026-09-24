@@ -97,14 +97,19 @@ async def coletar(
                 registros.append(registro)
                 continue
 
-            # Mesma URL com documento novo: o cache guarda o PDF antigo.
-            forcar = documento_novo and anteriores[item.identificador][0] == item.url_pdf
-            no_cache = cache.tem(item.url_pdf) and not forcar
+            # Mesma URL com documento novo: o cache guarda o PDF antigo. Ele sai
+            # do cache já, antes da cota e do download. Se ficasse, e o texto
+            # fosse descartado agora (sem cota, download falhou), o próximo sync
+            # não veria mais o protocolo como "mudou" (sem texto ele sai de
+            # anteriores) e reextrairia o PDF velho com a nota nova.
+            if documento_novo and anteriores[item.identificador][0] == item.url_pdf:
+                cache.remover(item.url_pdf)
+            no_cache = cache.tem(item.url_pdf)
             if baixados >= max_pdfs and not no_cache:
                 registros.append(registro)
                 continue
 
-            conteudo = await downloader.obter(item.url_pdf, forcar=forcar)
+            conteudo = await downloader.obter(item.url_pdf)
             if not no_cache:
                 baixados += 1
             if conteudo is None:

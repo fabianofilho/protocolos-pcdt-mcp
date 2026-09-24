@@ -205,8 +205,10 @@ responde que o texto ainda não foi coletado. `pcdt-cli schema` mostra a contage
 
 **Quando o PCDT muda, o texto antigo é descartado.** Se a URL do PDF, a data da portaria
 ou a nota de revisão mudarem, o sync reextrai o texto, com prioridade na cota da noite. Se
-não couber na cota, o protocolo fica sem texto até o próximo sync, em vez de resumir a
-versão velha com o link da nova.
+não couber na cota, ou se o download falhar, o protocolo fica sem texto até um sync
+conseguir baixar o PDF novo, em vez de resumir a versão velha com o link da nova. Quando
+só a nota ou a portaria mudam e a URL continua a mesma, o PDF velho sai do cache em disco
+na hora, para não ser reextraído depois.
 
 **O status é parcial.** Ver a seção de `consultar_protocolo`.
 

@@ -30,6 +30,9 @@ class CachePdf:
         caminho = self._caminho(url)
         return caminho.read_bytes() if caminho.exists() else None
 
+    def remover(self, url: str) -> None:
+        self._caminho(url).unlink(missing_ok=True)
+
     def gravar(self, url: str, conteudo: bytes) -> Path:
         self._dir.mkdir(parents=True, exist_ok=True)
         caminho = self._caminho(url)

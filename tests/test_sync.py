@@ -105,6 +105,53 @@ async def test_documento_novo_sem_cota_fica_sem_texto_em_vez_de_texto_velho(
     assert _texto(db, "asma") == (None, f"{GOVBR}asma_v2.pdf")
 
 
+ASMA_V1 = [("Asma (anexo alterado em 01/01/2026)", "asma.pdf", "Portaria nº 1 - 01/01/2026")]
+ASMA_V2 = [("Asma (anexo alterado em 04/09/2026)", "asma.pdf", "Portaria nº 1 - 01/01/2026")]
+
+
+def _asma(db: duckdb.DuckDBPyConnection) -> Any:
+    return db.execute(
+        "SELECT texto_completo, nota_atualizacao FROM protocolos WHERE identificador = 'asma'"
+    ).fetchone()
+
+
+@respx.mock
+async def test_mesma_url_sem_cota_nao_reextrai_o_pdf_velho_do_cache_depois(
+    db: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """Bug real: sem texto, o sync seguinte reextraía o PDF velho do cache com a nota nova."""
+    _mock_portal(ASMA_V1, {"asma.pdf": b"velho"})
+    await _coletar(db, tmp_path)
+
+    respx.reset()
+    _mock_portal(ASMA_V2, {"asma.pdf": b"novo"})
+    await _coletar(db, tmp_path, max_pdfs=0)
+    assert _asma(db) == (None, "anexo alterado em 04/09/2026")
+    await _coletar(db, tmp_path, max_pdfs=0)
+    assert _asma(db)[0] is None
+    await _coletar(db, tmp_path)
+    assert _asma(db) == ("novo", "anexo alterado em 04/09/2026")
+
+
+@respx.mock
+async def test_mesma_url_com_download_falho_nao_reextrai_o_pdf_velho_depois(
+    db: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _mock_portal(ASMA_V1, {"asma.pdf": b"velho"})
+    await _coletar(db, tmp_path)
+
+    respx.reset()
+    _mock_portal(ASMA_V2, {})
+    respx.get(f"{GOVBR}asma.pdf").mock(return_value=httpx.Response(503))
+    await _coletar(db, tmp_path)
+    assert _asma(db)[0] is None
+
+    respx.reset()
+    _mock_portal(ASMA_V2, {"asma.pdf": b"novo"})
+    await _coletar(db, tmp_path)
+    assert _asma(db)[0] == "novo"
+
+
 @respx.mock
 async def test_documento_que_mudou_tem_prioridade_na_cota(
     db: duckdb.DuckDBPyConnection, tmp_path: Path
