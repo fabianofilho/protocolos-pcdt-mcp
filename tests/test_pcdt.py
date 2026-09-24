@@ -249,7 +249,7 @@ def test_elipse_nas_pontas_nao_derruba_a_citacao() -> None:
     """Bug real: '[...] ' + trecho real dava fração 0.5 e 'NÃO encontrada'."""
     from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
 
-    for marcador in ("[...]", "(...)", "...", "…"):
+    for marcador in ("[...]", "(...)", "...", chr(0x2026)):
         citacao = f"{marcador} {TRECHO_REAL} {marcador}"
         assert conferir_citacao(citacao, TEXTO) is True, marcador
         assert fracao_verificada(citacao, TEXTO) == 1.0, marcador

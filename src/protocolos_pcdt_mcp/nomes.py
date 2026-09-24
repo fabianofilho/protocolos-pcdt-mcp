@@ -11,11 +11,14 @@ from __future__ import annotations
 import re
 import unicodedata
 
+# Travessão curto (U+2013), que o portal às vezes usa no lugar do hífen.
+_TRAVESSAO = chr(0x2013)
+
 # Nota de revisão no fim do nome, com ou sem parênteses, precedida ou não de
 # hífen ou ponto: "(anexo alterado em DD/MM/AAAA)", "- alterado em DD/MM/AAAA",
 # "(portaria atualizada em DD/MM/AAAA)".
 _NOTA_REVISAO = re.compile(
-    r"[\s.\-–]*\(?\s*"
+    r"[\s.\-" + _TRAVESSAO + r"]*\(?\s*"
     r"(?P<nota>(?:anexo\s+|portaria\s+)?(?:alterad[oa]|atualizad[oa]|republicad[oa])"
     r"\s+em\s+\d{1,2}º?/\d{2}/\d{4})"
     r"\s*\)?\s*$",
@@ -29,7 +32,7 @@ def separar_nota(condicao: str) -> tuple[str, str | None]:
     achado = _NOTA_REVISAO.search(texto)
     if achado is None:
         return texto, None
-    nome = texto[: achado.start()].rstrip(" .-–")
+    nome = texto[: achado.start()].rstrip(" .-" + _TRAVESSAO)
     if not nome:
         return texto, None
     return nome, achado.group("nota")
