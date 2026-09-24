@@ -1,16 +1,16 @@
 [project]
 name = "protocolos-pcdt-mcp"
 version = "0.1.0"
-description = "Servidor MCP que consulta os PCDTs vigentes do Ministério da Saúde/Conitec"
+description = "Servidor MCP local (stdio) que consulta os PCDTs vigentes da Conitec e resume a conduta com citação literal conferida"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.2",
+    "mcp>=2.2,<3",
     "httpx>=0.28",
     "beautifulsoup4>=4.12",
     "pdfplumber>=0.11",
     "duckdb>=1.1",
-    "apscheduler>=3.10",
     "typer>=0.15",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -52,5 +52,5 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["apscheduler.*", "pdfplumber.*", "bs4.*"]
+module = ["pdfplumber.*", "bs4.*"]
 ignore_missing_imports = true

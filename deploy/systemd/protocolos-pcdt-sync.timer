@@ -1,0 +1,14 @@
+[Unit]
+Description=Agenda o sync diario dos PCDTs da Conitec
+Documentation=https://github.com/fabianofilho/protocolos-pcdt-mcp
+
+[Timer]
+OnCalendar=*-*-* 02:40:00
+# Espalha o disparo em ate 30 min, para que varias maquinas rodando este
+# projeto nao batam no portal publico no mesmo minuto.
+RandomizedDelaySec=1800
+# Se a maquina estava desligada no horario, roda assim que ligar.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

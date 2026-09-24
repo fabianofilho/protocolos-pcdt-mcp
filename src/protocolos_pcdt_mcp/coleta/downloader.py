@@ -30,6 +30,9 @@ class CachePdf:
         caminho = self._caminho(url)
         return caminho.read_bytes() if caminho.exists() else None
 
+    def remover(self, url: str) -> None:
+        self._caminho(url).unlink(missing_ok=True)
+
     def gravar(self, url: str, conteudo: bytes) -> Path:
         self._dir.mkdir(parents=True, exist_ok=True)
         caminho = self._caminho(url)
@@ -64,9 +67,13 @@ class Downloader:
             await self._client.aclose()
             self._client = None
 
-    async def obter(self, url: str) -> bytes | None:
-        """PDF do cache, ou baixado agora. ``None`` quando o download falha."""
-        cacheado = self._cache.ler(url)
+    async def obter(self, url: str, *, forcar: bool = False) -> bytes | None:
+        """PDF do cache, ou baixado agora. ``None`` quando o download falha.
+
+        ``forcar`` ignora o cache: serve para quando o portal troca o PDF sem
+        trocar a URL (a portaria ou a nota de revisão mudou).
+        """
+        cacheado = None if forcar else self._cache.ler(url)
         if cacheado is not None:
             return cacheado
 

@@ -9,9 +9,11 @@ from pathlib import Path
 
 import duckdb
 
+from protocolos_pcdt_mcp.nomes import identificador_de, separar_nota
+
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSAO = 1
+SCHEMA_VERSAO = 2
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS protocolos (
@@ -27,7 +29,8 @@ CREATE TABLE IF NOT EXISTS protocolos (
     vigente             BOOLEAN NOT NULL DEFAULT TRUE,
     substituido_por     VARCHAR,
     extracao_incompleta BOOLEAN NOT NULL DEFAULT FALSE,
-    data_coleta         TIMESTAMP DEFAULT current_timestamp
+    data_coleta         TIMESTAMP DEFAULT current_timestamp,
+    nota_atualizacao    VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -69,8 +72,71 @@ def reindexar_fts(conexao: duckdb.DuckDBPyConnection) -> bool:
         return False
 
 
+def _indice_fts_desatualizado(conexao: duckdb.DuckDBPyConnection) -> bool:
+    """Se o índice FTS existe e aponta para identificadores que não estão na tabela."""
+    try:
+        linha = conexao.execute(
+            "SELECT count(*) FROM fts_main_protocolos.docs "
+            "WHERE name NOT IN (SELECT identificador FROM protocolos)"
+        ).fetchone()
+    except duckdb.Error:
+        return False
+    return bool(linha and linha[0])
+
+
+def migrar_identificadores(conexao: duckdb.DuckDBPyConnection) -> int:
+    """Tira a nota de revisão dos identificadores gravados antes da versão 2.
+
+    Até a versão 1 o identificador levava junto "(anexo alterado em ...)". O
+    registro é renomeado no lugar, preservando o texto já extraído. Se já existir
+    um registro com o identificador limpo, o texto do antigo passa para ele
+    quando ele não tiver, e o antigo sai. Devolve quantos foram migrados.
+    """
+    linhas = conexao.execute("SELECT identificador, condicao FROM protocolos").fetchall()
+    existentes = {linha[0] for linha in linhas}
+    migrados = 0
+    for identificador, condicao in linhas:
+        nome, nota = separar_nota(condicao)
+        novo = identificador_de(nome)
+        if novo == identificador:
+            continue
+        if novo in existentes:
+            conexao.execute(
+                """
+                UPDATE protocolos SET
+                    texto_completo = antigo.texto_completo,
+                    secoes_json = antigo.secoes_json,
+                    extracao_incompleta = antigo.extracao_incompleta
+                FROM (SELECT * FROM protocolos WHERE identificador = ?) AS antigo
+                WHERE protocolos.identificador = ? AND protocolos.texto_completo IS NULL
+                """,
+                [identificador, novo],
+            )
+            conexao.execute("DELETE FROM protocolos WHERE identificador = ?", [identificador])
+        else:
+            conexao.execute(
+                "UPDATE protocolos SET identificador = ?, condicao = ?, "
+                "nota_atualizacao = coalesce(nota_atualizacao, ?) WHERE identificador = ?",
+                [novo, nome, nota, identificador],
+            )
+            existentes.add(novo)
+        existentes.discard(identificador)
+        migrados += 1
+    if migrados:
+        logger.info("identificadores migrados sem nota de revisão: %d", migrados)
+    return migrados
+
+
 def aplicar_schema(conexao: duckdb.DuckDBPyConnection) -> None:
     conexao.execute(_DDL)
+    # Bases criadas na versão 1 não têm a coluna.
+    conexao.execute("ALTER TABLE protocolos ADD COLUMN IF NOT EXISTS nota_atualizacao VARCHAR")
+    migrados = migrar_identificadores(conexao)
+    # O índice FTS guarda o identificador: depois de renomear, match_bm25 devolve
+    # NULL para os renomeados e a busca no texto deixa de achá-los até o próximo
+    # sync terminar. A checagem do índice cobre bases já migradas sem reindexar.
+    if migrados or _indice_fts_desatualizado(conexao):
+        reindexar_fts(conexao)
     conexao.execute(
         "INSERT INTO schema_meta VALUES ('versao', ?) "
         "ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor",

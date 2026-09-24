@@ -1,8 +1,11 @@
 # protocolos-pcdt-mcp
 
-Servidor MCP que consulta os PCDTs (Protocolos Clínicos e Diretrizes Terapêuticas) do
-Ministério da Saúde/Conitec e resume a conduta recomendada para um contexto clínico
-específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
+Servidor MCP local (stdio) que consulta os PCDTs (Protocolos Clínicos e Diretrizes
+Terapêuticas) do Ministério da Saúde/Conitec e resume a conduta recomendada para um
+contexto clínico específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
+
+O servidor roda só por stdio, na sua máquina, sem porta de rede. Não há transporte HTTP
+nem connector remoto nesta versão, e expô-lo por túnel não é um uso suportado.
 
 > ### ⚠️ Não substitui o protocolo nem o julgamento clínico
 >
@@ -42,7 +45,6 @@ cp .env.example .env
 | `QWEN_MODEL` | `local-model` | llama.cpp e LM Studio aceitam qualquer nome |
 | `DUCKDB_PATH` | `./data/pcdt.duckdb` | base local |
 | `COLETA_DELAY_SEGUNDOS` | `1` | intervalo entre downloads de PDF |
-| `SYNC_HORA_LOCAL` | `02:40` | horário fixo da coleta agendada |
 
 ```bash
 uv run pcdt-cli llm                 # confirma o LLM local
@@ -55,6 +57,28 @@ uv run pcdt-cli resumir "asma" "paciente gestante"
 A coleta baixa no máximo `--max-pdfs` protocolos por execução: são ~130 PDFs grandes, e a
 ideia é a base completar ao longo de algumas noites em vez de sobrecarregar o portal numa
 única. O texto já coletado é preservado entre execuções.
+
+### Sync diário com systemd
+
+O servidor MCP não agenda nada sozinho. O caminho oficial para manter a base atualizada é o
+timer systemd de usuário versionado em [`deploy/systemd/`](deploy/systemd/): ele roda
+`pcdt-cli sync` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera o disparo
+perdido se a máquina estava desligada.
+
+As units supõem o clone em `~/protocolos-pcdt-mcp` e o `uv` em `~/.local/bin/uv`. Se os
+seus caminhos forem outros, edite `WorkingDirectory` e `ExecStart` antes de copiar.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/protocolos-pcdt-sync.service deploy/systemd/protocolos-pcdt-sync.timer \
+  ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now protocolos-pcdt-sync.timer
+systemctl --user list-timers protocolos-pcdt-sync.timer   # próximo disparo
+journalctl --user -u protocolos-pcdt-sync.service         # saída dos syncs
+```
+
+Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
 
 ### Ligando ao Claude Code
 
@@ -70,8 +94,23 @@ claude mcp add protocolos-pcdt --scope user \
 
 ### `consultar_protocolo(doenca_ou_condicao: str)`
 
-Busca pelo nome da condição; se não achar, procura no texto completo, uma condição pode
-ser tratada dentro do PCDT de outra. Devolve todos os protocolos relacionados.
+Busca primeiro no nome dos PCDTs vigentes:
+
+- sem acento e sem caixa, com as palavras em qualquer ordem, sempre no começo de uma
+  palavra ("asma" não casa com "citoplasma");
+- trocando algumas siglas pelo nome por extenso (`HAS`, `DPOC`, `DM1`, `DM2`, `TDAH`,
+  `LES`, `ELA`, `IC`, `DRC`, entre outras em `nomes.py`);
+- aceitando "diabetes"/"diabete" e "mellitus"/"melito", porque a Conitec escreve
+  "Diabete Melito Tipo 1".
+
+Devolve até 10 protocolos pelo nome, com `origem: "nome"`. Se o nome não casar, procura o
+termo no texto completo e devolve até 5 com `origem: "texto"` e um aviso: esses só citam
+o termo e muitas vezes não são o PCDT da condição (por exemplo, "depressão" traz Alzheimer
+e Parkinson, que mencionam depressão).
+
+O `identificador` é o nome da condição em minúsculas. Quando o portal pendura uma nota de
+revisão no nome, como "Asma (anexo alterado em 04/09/2026)", ela vai para
+`nota_atualizacao` e fica fora do identificador. Saída real, da base local em 24/09/2026:
 
 ```json
 {
@@ -82,19 +121,33 @@ ser tratada dentro do PCDT de outra. Devolve todos os protocolos relacionados.
       "identificador": "acidentes ofídicos",
       "condicao": "Acidentes Ofídicos",
       "status": "Conitec",
-      "portaria": "Portaria SECTICS/MS nº 83 - 07/10/2025",
+      "portaria": "Portaria SECTICS/MS nº 83 - 07/10/2025 (Publicada em 09/10/2025 )",
+      "data_portaria": "2025-10-07",
+      "nota_atualizacao": null,
       "url_pdf": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt_acidentes_ofidicos_final.pdf/@@display-file/file",
-      "secoes_disponiveis": ["introducao", "classificacao", "diagnostico", "tratamento", "monitoramento"],
-      "texto_completo_disponivel": true
+      "url_resumido": "https://www.gov.br/conitec/pt-br/midias/protocolos/2026/pcdt-resumido/pcdt-resumido-acidentes-ofidicos/@@display-file/file",
+      "vigente": true,
+      "secoes_disponiveis": ["introducao", "diagnostico", "classificacao", "monitoramento", "tratamento"],
+      "texto_completo_disponivel": true,
+      "extracao_incompleta": false,
+      "origem": "nome"
     }
-  ]
+  ],
+  "aviso": null
 }
 ```
+
+`status` vem do CSV de dados abertos do Ministério da Saúde e é **parcial**: em 24/09/2026,
+só 43 dos 132 PCDTs da listagem tinham status, porque boa parte dos nomes do CSV não
+existe na tabela do portal. `status: null` não quer dizer que o protocolo não está
+aprovado; a listagem da Conitec só traz PCDTs vigentes.
 
 ### `resumir_conduta(pcdt_id: str, contexto_clinico: str)`
 
 Extrai do protocolo a parte que responde ao contexto, em vez de devolver o documento
-inteiro.
+inteiro. Aceita o `identificador` de `consultar_protocolo` ou o nome da condição sem a nota
+de revisão (por exemplo, `asma`). Precisa do LLM local e do texto completo já coletado;
+sem um dos dois, devolve só o link do PDF e um aviso dizendo o que faltou.
 
 ```json
 {
@@ -102,7 +155,7 @@ inteiro.
   "resumo": {
     "resumo": "O paciente deve receber soroterapia antiveneno específica para o tipo de envenenamento.",
     "secao_origem": "1.3. Acesso a soroterapia antiveneno",
-    "citacao_literal": "…é necessário utilizar a soroterapia antiveneno específica, correspondente ao tipo de envenenamento…",
+    "citacao_literal": "é necessário utilizar a soroterapia antiveneno específica, correspondente ao tipo de envenenamento",
     "citacao_confere": true,
     "fracao_citacao_verificada": 1.0
   },
@@ -122,7 +175,9 @@ documento num único bloco de aspas. Então o código confere:
 | `fracao_citacao_verificada` | quanto dela existe, frase a frase (0 a 1) |
 
 Fração alta com `citacao_confere: false` é o caso mais traiçoeiro: parece legítimo na
-leitura e não é. Isso aconteceu no primeiro teste real deste projeto, com o PCDT de
+leitura e não é. Marcadores de omissão ("[...]", "(...)", reticências) nas pontas da
+citação são ignorados; no meio, significam que algo foi pulado, e a citação deixa de
+contar como contígua. Isso aconteceu no primeiro teste real deste projeto, com o PCDT de
 Acidentes Ofídicos, e é por isso que os dois campos existem.
 
 ## Limitações conhecidas
@@ -143,6 +198,25 @@ só o texto corrido fica disponível, de propósito, para não inventar estrutur
 
 **A base começa quase vazia.** Por causa do teto de PDFs por execução, os primeiros syncs
 trazem a listagem completa mas pouco texto. `texto_completo_disponivel` diz quais já têm.
+Na instância do mantenedor, em 24/09/2026, eram 64 de 132 com texto; no ritmo de 20 PDFs
+por noite, a base deve completar em cerca de 4 syncs (estimativa). Até lá, PCDTs como
+hipertensão arterial sistêmica e os de HIV aparecem na consulta, mas `resumir_conduta`
+responde que o texto ainda não foi coletado. `pcdt-cli schema` mostra a contagem.
+
+**Quando o PCDT muda, o texto antigo é descartado.** Se a URL do PDF, a data da portaria
+ou a nota de revisão mudarem, o sync reextrai o texto, com prioridade na cota da noite. Se
+não couber na cota, ou se o download falhar, o protocolo fica sem texto até um sync
+conseguir baixar o PDF novo, em vez de resumir a versão velha com o link da nova. Quando
+só a nota ou a portaria mudam e a URL continua a mesma, o PDF velho sai do cache em disco
+na hora, para não ser reextraído depois.
+
+**O status é parcial.** Ver a seção de `consultar_protocolo`.
+
+**A busca no texto é um último recurso.** Ela acha protocolos que citam o termo, não o
+PCDT da condição. Siglas fora da lista de `nomes.py` também caem nela.
+
+**Listagem parcial não despromove ninguém.** Se a listagem do portal trouxer menos de 80%
+dos PCDTs vigentes na base, o sync não tira ninguém de vigente e deixa um aviso no journal.
 
 **PDFs digitalizados não têm camada de texto.** Nesses casos o registro fica com
 `extracao_incompleta: true` e só os metadados.
@@ -162,6 +236,19 @@ desatualizados e devolvem 403; os que funcionam terminam em `.zip`.
 Atenção: o `contexto_clinico` que você digita vai para o seu LLM. Se ele estiver
 hospedado fora da sua máquina, o texto vai junto, este projeto não impede isso, ao
 contrário do `revisor-notas-mcp`.
+
+## Atualizando de uma base anterior
+
+A versão 0.1.0 tira a nota de revisão do identificador e cria a coluna
+`nota_atualizacao`. A migração roda no próximo `pcdt-cli sync` (ou em qualquer abertura
+da base para escrita, como `pcdt-cli schema`), preserva o texto já extraído e refaz o
+índice FTS. Até lá, o servidor continua lendo a
+base antiga: os identificadores aparecem com a nota, e `resumir_conduta` aceita o nome
+sem ela.
+
+## Segurança
+
+Ver [SECURITY.md](SECURITY.md). Mudanças por versão em [CHANGELOG.md](CHANGELOG.md).
 
 ## Contribuindo
 

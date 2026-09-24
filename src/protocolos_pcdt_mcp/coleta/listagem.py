@@ -26,6 +26,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from protocolos_pcdt_mcp.nomes import chave_nome, identificador_de, separar_nota
+
 logger = logging.getLogger(__name__)
 
 BASE_GOVBR = "https://www.gov.br"
@@ -56,11 +58,13 @@ class ItemPcdt:
     url_resumido: str | None
     portaria: str | None
     data_portaria: date | None
+    # Nota de revisão que o portal pendura no nome ("Anexo alterado em ...").
+    nota_atualizacao: str | None = None
 
     @property
     def identificador(self) -> str:
-        """Chave estável: a condição normalizada."""
-        return re.sub(r"\s+", " ", self.condicao).strip().lower()
+        """Chave estável: a condição normalizada, sem nota de revisão."""
+        return identificador_de(self.condicao)
 
 
 def _absoluta(href: object) -> str:
@@ -97,10 +101,11 @@ def parse_listagem(html: str) -> list[ItemPcdt]:
         celulas = linha.find_all(["td", "th"])
         if not celulas:
             continue
-        condicao = " ".join(celulas[0].get_text(" ", strip=True).split())
+        condicao_bruta = " ".join(celulas[0].get_text(" ", strip=True).split())
         # Separador alfabético ou célula vazia
-        if len(condicao) <= 1:
+        if len(condicao_bruta) <= 1:
             continue
+        condicao, nota = separar_nota(condicao_bruta)
 
         link_condicao = celulas[0].find("a", href=True)
         url_pdf = _absoluta(link_condicao["href"]) if link_condicao else None
@@ -119,6 +124,7 @@ def parse_listagem(html: str) -> list[ItemPcdt]:
                 url_resumido=url_resumido,
                 portaria=" ".join(texto_portaria.split()) or None,
                 data_portaria=_data(texto_portaria),
+                nota_atualizacao=nota,
             )
         )
     if not itens:
@@ -127,7 +133,13 @@ def parse_listagem(html: str) -> list[ItemPcdt]:
 
 
 def parse_status_csv(conteudo_zip: bytes) -> dict[str, str]:
-    """Mapa condição normalizada para status, a partir do CSV de dados abertos."""
+    """Mapa ``chave_nome`` da condição para status, a partir do CSV de dados abertos.
+
+    A chave é frouxa (sem acento, pontuação nem nota de revisão) porque os nomes
+    do CSV e da tabela do portal não são escritos do mesmo jeito. Mesmo assim o
+    casamento é parcial: em 24/09/2026, 43 dos 132 PCDTs da listagem acharam
+    status; boa parte dos nomes do CSV não existe na listagem.
+    """
     try:
         with zipfile.ZipFile(io.BytesIO(conteudo_zip)) as arquivo:
             nome = arquivo.namelist()[0]
@@ -140,7 +152,7 @@ def parse_status_csv(conteudo_zip: bytes) -> dict[str, str]:
         nome_pcdt = (linha.get("nome") or "").strip()
         status = (linha.get("status") or "").strip()
         if nome_pcdt and status:
-            mapa[re.sub(r"\s+", " ", nome_pcdt).lower()] = status
+            mapa[chave_nome(nome_pcdt)] = status
     return mapa
 
 

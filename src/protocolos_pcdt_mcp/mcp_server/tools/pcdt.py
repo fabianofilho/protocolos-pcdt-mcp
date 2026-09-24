@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,10 @@ AVISO_BASE_TRAVADA = (
     "A base local existe mas não pôde ser lida agora, provavelmente há uma coleta em "
     "andamento. Tente de novo em alguns minutos."
 )
+AVISO_SO_NO_TEXTO = (
+    "Nenhum PCDT com esse nome. Estes protocolos apenas citam o termo no texto e podem "
+    "não ter relação com a condição; não trate nenhum deles como o PCDT dela."
+)
 AVISO_LEITURA = (
     "O resumo é uma ajuda de leitura gerada por LLM local, não substitui o protocolo. "
     "Confira a citação literal e abra o PDF completo antes de qualquer decisão."
@@ -38,12 +42,23 @@ class Protocolo(BaseModel):
     status: str | None = None
     portaria: str | None = None
     data_portaria: date | None = None
+    nota_atualizacao: str | None = Field(
+        default=None,
+        description="Nota de revisão que o portal põe ao lado do nome, ex. 'Anexo alterado em ...'",
+    )
     url_pdf: str | None = None
     url_resumido: str | None = None
     vigente: bool = True
     secoes_disponiveis: list[str] = Field(default_factory=list)
     texto_completo_disponivel: bool = False
     extracao_incompleta: bool = False
+    origem: Literal["nome", "texto"] = Field(
+        default="nome",
+        description=(
+            "'nome': o termo casou com o nome do PCDT. 'texto': o nome não casou e o "
+            "protocolo só cita o termo em algum ponto do texto"
+        ),
+    )
 
 
 class RespostaConsulta(BaseModel):
@@ -62,7 +77,7 @@ class RespostaResumo(BaseModel):
     aviso: str | None = None
 
 
-def _para_modelo(linha: dict[str, Any]) -> Protocolo:
+def _para_modelo(linha: dict[str, Any], origem: Literal["nome", "texto"] = "nome") -> Protocolo:
     secoes: list[str] = []
     if linha.get("secoes_json"):
         try:
@@ -75,12 +90,14 @@ def _para_modelo(linha: dict[str, Any]) -> Protocolo:
         status=linha.get("status"),
         portaria=linha.get("portaria"),
         data_portaria=linha.get("data_portaria"),
+        nota_atualizacao=linha.get("nota_atualizacao"),
         url_pdf=linha.get("url_pdf"),
         url_resumido=linha.get("url_resumido"),
         vigente=bool(linha.get("vigente", True)),
         secoes_disponiveis=secoes,
         texto_completo_disponivel=bool(linha.get("texto_completo")),
         extracao_incompleta=bool(linha.get("extracao_incompleta", False)),
+        origem=origem,
     )
 
 
@@ -103,29 +120,39 @@ async def consultar_protocolo(
     *,
     caminho_db: str,
     limite: int = 10,
+    limite_texto: int = 5,
 ) -> RespostaConsulta:
     """PCDT vigente para uma doença ou condição.
 
     Busca primeiro pelo nome da condição; se não achar, procura no texto dos
     protocolos, porque uma condição pode ser tratada dentro do PCDT de outra.
+    Resultados do texto vêm marcados com ``origem="texto"`` e com um aviso, porque
+    muitas vezes só mencionam o termo de passagem.
     """
     termo = doenca_ou_condicao.strip()
     if not termo:
         return RespostaConsulta(termo=termo, total=0, resultados=[], aviso="Informe uma condição.")
 
-    def consulta(conexao: Any) -> list[dict[str, Any]]:
+    def consulta(conexao: Any) -> tuple[list[dict[str, Any]], Literal["nome", "texto"]]:
         achados = buscar_condicao(conexao, termo, limite=limite)
-        return achados if achados else buscar_no_texto(conexao, termo, limite=limite)
+        if achados:
+            return achados, "nome"
+        return buscar_no_texto(conexao, termo, limite=limite_texto), "texto"
 
-    linhas, aviso = _ler(caminho_db, consulta)
-    if linhas is None:
+    resultado, aviso = _ler(caminho_db, consulta)
+    if resultado is None:
         return RespostaConsulta(termo=termo, total=0, resultados=[], aviso=aviso)
 
+    linhas, origem = resultado
+    if not linhas:
+        aviso = "Nenhum PCDT encontrado para essa condição."
+    elif origem == "texto":
+        aviso = AVISO_SO_NO_TEXTO
     return RespostaConsulta(
         termo=termo,
         total=len(linhas),
-        resultados=[_para_modelo(linha) for linha in linhas],
-        aviso=None if linhas else "Nenhum PCDT encontrado para essa condição.",
+        resultados=[_para_modelo(linha, origem) for linha in linhas],
+        aviso=aviso,
     )
 
 

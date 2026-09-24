@@ -231,3 +231,177 @@ async def test_aviso_distingue_costura_de_invencao(caminho_db: str) -> None:
         "asma", "adulto", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
     )
     assert resposta.aviso is not None and "NÃO foi encontrada" in resposta.aviso
+
+
+def test_prompt_carrega_de_dentro_do_pacote() -> None:
+    """O prompt precisa vir do pacote instalado, não de um diretório ao lado do repo."""
+    from protocolos_pcdt_mcp.llm.resumir import renderizar_prompt
+
+    assert "citacao_literal" in renderizar_prompt()
+
+
+# --- marcadores de omissão na citação ----------------------------------------
+
+TRECHO_REAL = "Primeira linha: fármaco A, 500 mg, duas vezes ao dia, por 30 dias."
+
+
+def test_elipse_nas_pontas_nao_derruba_a_citacao() -> None:
+    """Bug real: '[...] ' + trecho real dava fração 0.5 e 'NÃO encontrada'."""
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    for marcador in ("[...]", "(...)", "...", chr(0x2026)):
+        citacao = f"{marcador} {TRECHO_REAL} {marcador}"
+        assert conferir_citacao(citacao, TEXTO) is True, marcador
+        assert fracao_verificada(citacao, TEXTO) == 1.0, marcador
+
+
+def test_elipse_no_meio_nao_e_contigua_mas_conta_na_fracao() -> None:
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    protocolo = (
+        "Primeira linha: fármaco A, 500 mg, duas vezes ao dia. "
+        "Muitas páginas de texto no meio do documento. "
+        "O diagnóstico precoce é fundamental para definir a dose."
+    )
+    citacao = (
+        "Primeira linha: fármaco A, 500 mg, duas vezes ao dia [...] "
+        "O diagnóstico precoce é fundamental para definir a dose."
+    )
+    assert conferir_citacao(citacao, protocolo) is False
+    assert fracao_verificada(citacao, protocolo) == 1.0
+
+
+def test_so_elipse_nao_confere() -> None:
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    assert conferir_citacao("[...]", TEXTO) is False
+    assert fracao_verificada("...", TEXTO) == 0.0
+
+
+@respx.mock
+async def test_aviso_nao_acusa_citacao_real_com_elipse(caminho_db: str) -> None:
+    with conectar(caminho_db) as conexao:
+        gravar(conexao, [_registro()])
+    respx.get(f"{ENDPOINT}/models").mock(return_value=httpx.Response(200, json={"data": []}))
+    respx.post(f"{ENDPOINT}/chat/completions").mock(
+        return_value=_chat(
+            json.dumps(
+                {"resumo": "x", "secao_origem": "3", "citacao_literal": f"[...] {TRECHO_REAL}"}
+            )
+        )
+    )
+    resposta = await resumir_conduta(
+        "asma", "adulto", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
+    )
+    assert resposta.resumo is not None and resposta.resumo.citacao_confere is True
+    assert resposta.aviso is not None and "ATENÇÃO" not in resposta.aviso
+
+
+async def test_resumir_aceita_id_sem_nota_de_revisao(caminho_db: str) -> None:
+    """Bug real: resumir_conduta('asma', ...) não achava 'asma (anexo alterado em ...)'."""
+    with conectar(caminho_db) as conexao:
+        gravar(
+            conexao,
+            [_registro(identificador="asma (anexo alterado em 04/09/2026)", texto_completo=None)],
+        )
+    resposta = await resumir_conduta(
+        "asma", "gestante", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
+    )
+    assert resposta.identificador == "asma (anexo alterado em 04/09/2026)"
+    assert resposta.aviso is not None and "ainda não foi coletado" in resposta.aviso
+
+
+# --- sinônimos e origem do resultado -------------------------------------------
+
+
+def _nomes(db: duckdb.DuckDBPyConnection, termo: str) -> list[str]:
+    return [r["identificador"] for r in buscar_condicao(db, termo)]
+
+
+def _base_com_diabetes(db: duckdb.DuckDBPyConnection) -> None:
+    gravar(
+        db,
+        [
+            _registro(identificador=nome.lower(), condicao=nome)
+            for nome in (
+                "Diabetes Insípido",
+                "Diabete Melito Tipo 1",
+                "Diabete Melito Tipo 2",
+                "Hipertensão Arterial Sistêmica",
+                "Hipertensão Pulmonar",
+                "Doença Pulmonar Obstrutiva Crônica",
+                "Glaucoma",
+            )
+        ],
+    )
+
+
+def test_diabetes_acha_dm1_e_dm2(db: duckdb.DuckDBPyConnection) -> None:
+    """Bug real: 'diabetes' só trazia 'diabetes insípido'."""
+    _base_com_diabetes(db)
+    assert set(_nomes(db, "diabetes")) == {
+        "diabetes insípido",
+        "diabete melito tipo 1",
+        "diabete melito tipo 2",
+    }
+
+
+def test_diabetes_mellitus_acha_diabete_melito(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "Diabetes Mellitus") == ["diabete melito tipo 1", "diabete melito tipo 2"]
+    assert _nomes(db, "diabetes tipo 2") == ["diabete melito tipo 2"]
+    assert _nomes(db, "DM2") == ["diabete melito tipo 2"]
+
+
+def test_siglas_viram_nome_por_extenso(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "HAS") == ["hipertensão arterial sistêmica"]
+    assert _nomes(db, "dpoc") == ["doença pulmonar obstrutiva crônica"]
+
+
+def test_palavras_em_qualquer_ordem(db: duckdb.DuckDBPyConnection) -> None:
+    _base_com_diabetes(db)
+    assert _nomes(db, "pulmonar hipertensão") == ["hipertensão pulmonar"]
+
+
+async def test_resultado_so_do_texto_vem_marcado_e_com_aviso(caminho_db: str) -> None:
+    """Bug real: 'depressão' devolvia Alzheimer e Parkinson como se fossem o PCDT dela."""
+    with conectar(caminho_db) as conexao:
+        gravar(
+            conexao,
+            [
+                _registro(
+                    identificador="doença de parkinson",
+                    condicao="Doença de Parkinson",
+                    texto_completo="Sintomas não motores incluem depressão e ansiedade.",
+                )
+            ],
+        )
+    resposta = await consultar_protocolo("depressão", caminho_db=caminho_db)
+    assert resposta.total == 1
+    assert resposta.resultados[0].origem == "texto"
+    assert resposta.aviso is not None and "apenas citam o termo" in resposta.aviso
+
+
+async def test_resultado_pelo_nome_vem_marcado_sem_aviso(caminho_db: str) -> None:
+    with conectar(caminho_db) as conexao:
+        gravar(conexao, [_registro()])
+    resposta = await consultar_protocolo("asma", caminho_db=caminho_db)
+    assert resposta.resultados[0].origem == "nome"
+    assert resposta.aviso is None
+
+
+def test_busca_casa_no_comeco_da_palavra(db: duckdb.DuckDBPyConnection) -> None:
+    """Bug real: 'asma' trazia 'vasculite ... anti-citoplasma de neutrófilos'."""
+    gravar(
+        db,
+        [
+            _registro(identificador="asma", condicao="Asma"),
+            _registro(
+                identificador="vasculite",
+                condicao="Vasculite Associada aos Anticorpos Anti-citoplasma de Neutrófilos",
+            ),
+        ],
+    )
+    assert _nomes(db, "asma") == ["asma"]
+    assert _nomes(db, "citoplasma") == ["vasculite"]
