@@ -10,3 +10,4 @@ __pycache__/
 *.duckdb.wal
 data/
 !src/protocolos_pcdt_mcp/
+.claude/
