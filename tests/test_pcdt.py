@@ -238,3 +238,60 @@ def test_prompt_carrega_de_dentro_do_pacote() -> None:
     from protocolos_pcdt_mcp.llm.resumir import renderizar_prompt
 
     assert "citacao_literal" in renderizar_prompt()
+
+
+# --- marcadores de omissão na citação ----------------------------------------
+
+TRECHO_REAL = "Primeira linha: fármaco A, 500 mg, duas vezes ao dia, por 30 dias."
+
+
+def test_elipse_nas_pontas_nao_derruba_a_citacao() -> None:
+    """Bug real: '[...] ' + trecho real dava fração 0.5 e 'NÃO encontrada'."""
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    for marcador in ("[...]", "(...)", "...", "…"):
+        citacao = f"{marcador} {TRECHO_REAL} {marcador}"
+        assert conferir_citacao(citacao, TEXTO) is True, marcador
+        assert fracao_verificada(citacao, TEXTO) == 1.0, marcador
+
+
+def test_elipse_no_meio_nao_e_contigua_mas_conta_na_fracao() -> None:
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    protocolo = (
+        "Primeira linha: fármaco A, 500 mg, duas vezes ao dia. "
+        "Muitas páginas de texto no meio do documento. "
+        "O diagnóstico precoce é fundamental para definir a dose."
+    )
+    citacao = (
+        "Primeira linha: fármaco A, 500 mg, duas vezes ao dia [...] "
+        "O diagnóstico precoce é fundamental para definir a dose."
+    )
+    assert conferir_citacao(citacao, protocolo) is False
+    assert fracao_verificada(citacao, protocolo) == 1.0
+
+
+def test_so_elipse_nao_confere() -> None:
+    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+
+    assert conferir_citacao("[...]", TEXTO) is False
+    assert fracao_verificada("...", TEXTO) == 0.0
+
+
+@respx.mock
+async def test_aviso_nao_acusa_citacao_real_com_elipse(caminho_db: str) -> None:
+    with conectar(caminho_db) as conexao:
+        gravar(conexao, [_registro()])
+    respx.get(f"{ENDPOINT}/models").mock(return_value=httpx.Response(200, json={"data": []}))
+    respx.post(f"{ENDPOINT}/chat/completions").mock(
+        return_value=_chat(
+            json.dumps(
+                {"resumo": "x", "secao_origem": "3", "citacao_literal": f"[...] {TRECHO_REAL}"}
+            )
+        )
+    )
+    resposta = await resumir_conduta(
+        "asma", "adulto", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
+    )
+    assert resposta.resumo is not None and resposta.resumo.citacao_confere is True
+    assert resposta.aviso is not None and "ATENÇÃO" not in resposta.aviso
