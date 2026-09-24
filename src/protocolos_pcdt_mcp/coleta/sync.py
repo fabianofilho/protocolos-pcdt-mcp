@@ -13,6 +13,7 @@ import duckdb
 from protocolos_pcdt_mcp.coleta.downloader import CachePdf, Downloader
 from protocolos_pcdt_mcp.coleta.listagem import baixar_listagem, baixar_status
 from protocolos_pcdt_mcp.extract.parser import extrair
+from protocolos_pcdt_mcp.nomes import chave_nome
 from protocolos_pcdt_mcp.store.queries import gravar, marcar_ausentes_como_substituidos
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ async def coletar(
             registro: dict[str, Any] = {
                 "identificador": item.identificador,
                 "condicao": item.condicao,
-                "status": status.get(item.identificador),
+                "status": status.get(chave_nome(item.condicao)),
                 "portaria": item.portaria,
                 "data_portaria": item.data_portaria,
                 "url_pdf": item.url_pdf,
@@ -69,6 +70,7 @@ async def coletar(
                 "vigente": True,
                 "substituido_por": None,
                 "extracao_incompleta": False,
+                "nota_atualizacao": item.nota_atualizacao,
             }
 
             precisa_texto = (

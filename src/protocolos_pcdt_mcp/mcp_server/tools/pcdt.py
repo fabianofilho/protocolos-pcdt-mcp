@@ -38,6 +38,10 @@ class Protocolo(BaseModel):
     status: str | None = None
     portaria: str | None = None
     data_portaria: date | None = None
+    nota_atualizacao: str | None = Field(
+        default=None,
+        description="Nota de revisão que o portal põe ao lado do nome, ex. 'Anexo alterado em ...'",
+    )
     url_pdf: str | None = None
     url_resumido: str | None = None
     vigente: bool = True
@@ -75,6 +79,7 @@ def _para_modelo(linha: dict[str, Any]) -> Protocolo:
         status=linha.get("status"),
         portaria=linha.get("portaria"),
         data_portaria=linha.get("data_portaria"),
+        nota_atualizacao=linha.get("nota_atualizacao"),
         url_pdf=linha.get("url_pdf"),
         url_resumido=linha.get("url_resumido"),
         vigente=bool(linha.get("vigente", True)),

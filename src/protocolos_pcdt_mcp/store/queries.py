@@ -7,11 +7,14 @@ from typing import Any
 
 import duckdb
 
+from protocolos_pcdt_mcp.nomes import chave_nome
+
 logger = logging.getLogger(__name__)
 
 _COLUNAS = (
     "identificador, condicao, status, portaria, data_portaria, url_pdf, url_resumido, "
-    "texto_completo, secoes_json, vigente, substituido_por, extracao_incompleta"
+    "texto_completo, secoes_json, vigente, substituido_por, extracao_incompleta, "
+    "nota_atualizacao"
 )
 
 
@@ -91,12 +94,30 @@ def buscar_no_texto(
 def por_identificador(
     conexao: duckdb.DuckDBPyConnection, identificador: str
 ) -> dict[str, Any] | None:
+    """Protocolo pelo identificador exato ou, se não houver, pelo nome sem nota.
+
+    O segundo caminho aceita "asma" quando a base ainda guarda "asma (anexo
+    alterado em ...)", e também diferenças de acento e pontuação. Entre vários
+    candidatos, prefere o vigente.
+    """
     linhas = _para_dicts(
         conexao.execute(
             f"SELECT {_COLUNAS} FROM protocolos WHERE identificador = ?", [identificador]
         )
     )
-    return linhas[0] if linhas else None
+    if linhas:
+        return linhas[0]
+
+    alvo = chave_nome(identificador)
+    if not alvo:
+        return None
+    candidatos = conexao.execute(
+        "SELECT identificador, condicao FROM protocolos ORDER BY vigente DESC, identificador"
+    ).fetchall()
+    for ident, condicao in candidatos:
+        if alvo in (chave_nome(ident), chave_nome(condicao)):
+            return por_identificador(conexao, ident)
+    return None
 
 
 def gravar(conexao: duckdb.DuckDBPyConnection, registros: list[dict[str, Any]]) -> tuple[int, int]:

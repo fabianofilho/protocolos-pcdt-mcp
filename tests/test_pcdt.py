@@ -295,3 +295,17 @@ async def test_aviso_nao_acusa_citacao_real_com_elipse(caminho_db: str) -> None:
     )
     assert resposta.resumo is not None and resposta.resumo.citacao_confere is True
     assert resposta.aviso is not None and "ATENÇÃO" not in resposta.aviso
+
+
+async def test_resumir_aceita_id_sem_nota_de_revisao(caminho_db: str) -> None:
+    """Bug real: resumir_conduta('asma', ...) não achava 'asma (anexo alterado em ...)'."""
+    with conectar(caminho_db) as conexao:
+        gravar(
+            conexao,
+            [_registro(identificador="asma (anexo alterado em 04/09/2026)", texto_completo=None)],
+        )
+    resposta = await resumir_conduta(
+        "asma", "gestante", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
+    )
+    assert resposta.identificador == "asma (anexo alterado em 04/09/2026)"
+    assert resposta.aviso is not None and "ainda não foi coletado" in resposta.aviso
