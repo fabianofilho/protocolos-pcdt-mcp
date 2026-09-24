@@ -1,8 +1,9 @@
 [project]
 name = "protocolos-pcdt-mcp"
 version = "0.1.0"
-description = "Servidor MCP que consulta os PCDTs vigentes do Ministério da Saúde/Conitec"
+description = "Servidor MCP local (stdio) que consulta os PCDTs vigentes da Conitec e resume a conduta com citação literal conferida"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=2.2,<3",
