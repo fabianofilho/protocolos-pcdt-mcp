@@ -64,9 +64,13 @@ class Downloader:
             await self._client.aclose()
             self._client = None
 
-    async def obter(self, url: str) -> bytes | None:
-        """PDF do cache, ou baixado agora. ``None`` quando o download falha."""
-        cacheado = self._cache.ler(url)
+    async def obter(self, url: str, *, forcar: bool = False) -> bytes | None:
+        """PDF do cache, ou baixado agora. ``None`` quando o download falha.
+
+        ``forcar`` ignora o cache: serve para quando o portal troca o PDF sem
+        trocar a URL (a portaria ou a nota de revisão mudou).
+        """
+        cacheado = None if forcar else self._cache.ler(url)
         if cacheado is not None:
             return cacheado
 

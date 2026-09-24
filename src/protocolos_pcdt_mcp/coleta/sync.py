@@ -11,12 +11,16 @@ from typing import Any
 import duckdb
 
 from protocolos_pcdt_mcp.coleta.downloader import CachePdf, Downloader
-from protocolos_pcdt_mcp.coleta.listagem import baixar_listagem, baixar_status
+from protocolos_pcdt_mcp.coleta.listagem import ItemPcdt, baixar_listagem, baixar_status
 from protocolos_pcdt_mcp.extract.parser import extrair
 from protocolos_pcdt_mcp.nomes import chave_nome
 from protocolos_pcdt_mcp.store.queries import gravar, marcar_ausentes_como_substituidos
 
 logger = logging.getLogger(__name__)
+
+# Se a listagem trouxer menos que esta fração dos PCDTs vigentes na base, ela é
+# tratada como parcial e ninguém é despromovido nesta execução.
+FRACAO_MINIMA_LISTAGEM = 0.8
 
 
 @dataclass(frozen=True)
@@ -48,15 +52,30 @@ async def coletar(
     baixados = 0
     registros: list[dict[str, Any]] = []
 
-    ja_com_texto = {
-        linha[0]
+    # Documento de onde veio o texto já extraído. Se a URL, a data da portaria ou
+    # a nota de revisão mudarem, o texto guardado é de outro documento.
+    anteriores: dict[str, tuple[Any, ...]] = {
+        linha[0]: tuple(linha[1:])
         for linha in conexao.execute(
-            "SELECT identificador FROM protocolos WHERE texto_completo IS NOT NULL"
+            "SELECT identificador, url_pdf, data_portaria, nota_atualizacao "
+            "FROM protocolos WHERE texto_completo IS NOT NULL"
         ).fetchall()
     }
+    contagem_vigentes = conexao.execute("SELECT count(*) FROM protocolos WHERE vigente").fetchone()
+    vigentes_antes = int(contagem_vigentes[0]) if contagem_vigentes else 0
+
+    def mudou(item: ItemPcdt) -> bool:
+        anterior = anteriores.get(item.identificador)
+        return anterior is not None and anterior != documento(item)
+
+    # Quem tem texto desatualizado vai primeiro, antes de quem nunca teve texto.
+    fila = sorted(itens, key=lambda item: not mudou(item))
+    desatualizados = sum(1 for item in itens if mudou(item))
+    if desatualizados:
+        logger.info("PCDT: %d protocolos mudaram de documento desde a extração", desatualizados)
 
     async with Downloader(cache, delay_segundos=delay_segundos) as downloader:
-        for item in itens:
+        for item in fila:
             registro: dict[str, Any] = {
                 "identificador": item.identificador,
                 "condicao": item.condicao,
@@ -73,43 +92,70 @@ async def coletar(
                 "nota_atualizacao": item.nota_atualizacao,
             }
 
-            precisa_texto = (
-                item.url_pdf is not None
-                and item.identificador not in ja_com_texto
-                and (baixados < max_pdfs or cache.tem(item.url_pdf))
-            )
-            if precisa_texto and item.url_pdf:
-                conteudo = await downloader.obter(item.url_pdf)
-                if conteudo is None:
-                    registro["extracao_incompleta"] = True
-                else:
-                    if not cache.tem(item.url_pdf):
-                        baixados += 1
-                    else:
-                        baixados += 1
-                    extraido = extrair(conteudo)
-                    registro["texto_completo"] = extraido.texto or None
-                    registro["secoes_json"] = (
-                        json.dumps(extraido.secoes, ensure_ascii=False) if extraido.secoes else None
-                    )
-                    registro["extracao_incompleta"] = extraido.extracao_incompleta
+            documento_novo = mudou(item)
+            if item.url_pdf is None or (item.identificador in anteriores and not documento_novo):
+                registros.append(registro)
+                continue
+
+            # Mesma URL com documento novo: o cache guarda o PDF antigo.
+            forcar = documento_novo and anteriores[item.identificador][0] == item.url_pdf
+            no_cache = cache.tem(item.url_pdf) and not forcar
+            if baixados >= max_pdfs and not no_cache:
+                registros.append(registro)
+                continue
+
+            conteudo = await downloader.obter(item.url_pdf, forcar=forcar)
+            if not no_cache:
+                baixados += 1
+            if conteudo is None:
+                registro["extracao_incompleta"] = True
+            else:
+                extraido = extrair(conteudo)
+                registro["texto_completo"] = extraido.texto or None
+                registro["secoes_json"] = (
+                    json.dumps(extraido.secoes, ensure_ascii=False) if extraido.secoes else None
+                )
+                registro["extracao_incompleta"] = extraido.extracao_incompleta
             registros.append(registro)
 
-    # Preserva texto já coletado antes: o upsert não pode apagá-lo com NULL.
+    # Preserva texto já coletado antes: o upsert não pode apagá-lo com NULL. Texto
+    # de um documento que mudou não é preservado: é melhor dizer "ainda não
+    # coletado" do que resumir a versão velha com o link da nova.
     for registro in registros:
-        if registro["texto_completo"] is None and registro["identificador"] in ja_com_texto:
-            anterior = conexao.execute(
+        identificador = registro["identificador"]
+        anterior = anteriores.get(identificador)
+        if registro["texto_completo"] is None and anterior is not None:
+            if anterior != (
+                registro["url_pdf"],
+                registro["data_portaria"],
+                registro["nota_atualizacao"],
+            ):
+                continue
+            linha = conexao.execute(
                 "SELECT texto_completo, secoes_json FROM protocolos WHERE identificador = ?",
-                [registro["identificador"]],
+                [identificador],
             ).fetchone()
-            if anterior:
-                registro["texto_completo"] = anterior[0]
-                registro["secoes_json"] = anterior[1]
+            if linha:
+                registro["texto_completo"] = linha[0]
+                registro["secoes_json"] = linha[1]
 
     novos, atualizados = gravar(conexao, registros)
-    despromovidos = marcar_ausentes_como_substituidos(
-        conexao, [r["identificador"] for r in registros]
-    )
+
+    vistos = {r["identificador"] for r in registros}
+    if vigentes_antes and len(vistos) < FRACAO_MINIMA_LISTAGEM * vigentes_antes:
+        # Listagem parcial (paginação nova, parser pegando metade da tabela):
+        # despromover agora tiraria de vigente, em silêncio, PCDTs que continuam
+        # valendo. Melhor não despromover ninguém e deixar o aviso no journal.
+        logger.warning(
+            "PCDT: listagem trouxe %d protocolos contra %d vigentes na base; "
+            "abaixo de %d%%, ninguém foi despromovido. Confira se o portal mudou.",
+            len(vistos),
+            vigentes_antes,
+            int(FRACAO_MINIMA_LISTAGEM * 100),
+        )
+        despromovidos = 0
+    else:
+        despromovidos = marcar_ausentes_como_substituidos(conexao, sorted(vistos))
     logger.info(
         "PCDT: %d novos, %d atualizados, %d PDFs, %d fora da listagem",
         novos,
@@ -120,3 +166,8 @@ async def coletar(
     return ResultadoColeta(
         novos=novos, atualizados=atualizados, pdfs_baixados=baixados, despromovidos=despromovidos
     )
+
+
+def documento(item: ItemPcdt) -> tuple[Any, ...]:
+    """O que identifica o documento de onde o texto foi extraído."""
+    return (item.url_pdf, item.data_portaria, item.nota_atualizacao)
