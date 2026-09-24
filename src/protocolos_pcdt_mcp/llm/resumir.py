@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
-from pathlib import Path
+from importlib.resources import files
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, Template, select_autoescape
 from pydantic import BaseModel, Field
 
 from protocolos_pcdt_mcp.llm.qwen_client import QwenClient
@@ -49,20 +49,16 @@ class ResumoConduta(BaseModel):
     )
 
 
-def diretorio_prompts() -> Path:
-    return Path(__file__).resolve().parents[3] / "prompts"
-
-
 @lru_cache(maxsize=1)
-def _ambiente() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(diretorio_prompts()),
-        autoescape=select_autoescape(default=False, default_for_string=False),
-    )
+def _template() -> Template:
+    """O prompt mora dentro do pacote, para ir junto no wheel."""
+    fonte = files("protocolos_pcdt_mcp").joinpath("prompts", NOME_TEMPLATE).read_text("utf-8")
+    ambiente = Environment(autoescape=select_autoescape(default=False, default_for_string=False))
+    return ambiente.from_string(fonte)
 
 
 def renderizar_prompt() -> str:
-    return _ambiente().get_template(NOME_TEMPLATE).render()
+    return _template().render()
 
 
 def _normalizar(texto: str) -> str:

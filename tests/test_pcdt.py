@@ -231,3 +231,10 @@ async def test_aviso_distingue_costura_de_invencao(caminho_db: str) -> None:
         "asma", "adulto", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
     )
     assert resposta.aviso is not None and "NÃO foi encontrada" in resposta.aviso
+
+
+def test_prompt_carrega_de_dentro_do_pacote() -> None:
+    """O prompt precisa vir do pacote instalado, não de um diretório ao lado do repo."""
+    from protocolos_pcdt_mcp.llm.resumir import renderizar_prompt
+
+    assert "citacao_literal" in renderizar_prompt()
