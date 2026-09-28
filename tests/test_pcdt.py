@@ -8,11 +8,12 @@ from typing import Any
 
 import duckdb
 import httpx
+import pytest
 import respx
 
 from protocolos_pcdt_mcp.llm.resumir import conferir_citacao
 from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo, resumir_conduta
-from protocolos_pcdt_mcp.store.db import conectar
+from protocolos_pcdt_mcp.store.db import aplicar_schema, conectar
 from protocolos_pcdt_mcp.store.queries import buscar_condicao, gravar, por_identificador
 
 ENDPOINT = "http://llm-de-teste/v1"
@@ -405,3 +406,22 @@ def test_busca_casa_no_comeco_da_palavra(db: duckdb.DuckDBPyConnection) -> None:
     )
     assert _nomes(db, "asma") == ["asma"]
     assert _nomes(db, "citoplasma") == ["vasculite"]
+
+
+@pytest.mark.asyncio
+async def test_total_e_quantos_casam_nao_o_tamanho_da_lista(caminho_db: str) -> None:
+    """'diabetes' aparece no texto de 47 protocolos e a resposta dizia total 10."""
+    with conectar(caminho_db) as conexao:
+        aplicar_schema(conexao)
+        conexao.executemany(
+            "INSERT INTO protocolos (identificador, condicao, url_pdf, texto_completo, vigente) "
+            "VALUES (?, ?, 'u', 'trata de diabetes entre outras coisas', true)",
+            [[str(i), f"CONDICAO RARA {i}"] for i in range(20)],
+        )
+
+    r = await consultar_protocolo("diabetes", caminho_db=caminho_db, limite_texto=5)
+
+    assert r.total == 20, "o universo que casa, não a página"
+    assert r.retornados == 5
+    assert r.truncado is True
+    assert r.aviso is not None and "20" in r.aviso

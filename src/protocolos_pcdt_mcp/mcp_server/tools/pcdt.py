@@ -12,7 +12,13 @@ from pydantic import BaseModel, Field
 from protocolos_pcdt_mcp.llm.qwen_client import QwenClient, QwenIndisponivel
 from protocolos_pcdt_mcp.llm.resumir import ResumoConduta, resumir
 from protocolos_pcdt_mcp.store.db import BaseIndisponivel, conectar
-from protocolos_pcdt_mcp.store.queries import buscar_condicao, buscar_no_texto, por_identificador
+from protocolos_pcdt_mcp.store.queries import (
+    buscar_condicao,
+    buscar_no_texto,
+    contar_condicao,
+    contar_no_texto,
+    por_identificador,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +69,23 @@ class Protocolo(BaseModel):
 
 class RespostaConsulta(BaseModel):
     termo: str
-    total: int
+    total: int = Field(
+        description=(
+            "Quantos protocolos casam com o termo na base inteira, não quantos vieram "
+            "nesta resposta. Um termo comum aparece no texto de dezenas: 'diabetes' "
+            "aparece em 47 dos 132."
+        )
+    )
+    retornados: int = Field(
+        default=0, description="Quantos vieram em 'resultados', no máximo 'limite'"
+    )
+    truncado: bool = Field(
+        default=False,
+        description=(
+            "True quando total > retornados. Não conte os resultados para dizer quantos "
+            "protocolos tratam do assunto: use 'total' e aumente 'limite' se precisar."
+        ),
+    )
     resultados: list[Protocolo]
     aviso: str | None = None
 
@@ -133,24 +155,37 @@ async def consultar_protocolo(
     if not termo:
         return RespostaConsulta(termo=termo, total=0, resultados=[], aviso="Informe uma condição.")
 
-    def consulta(conexao: Any) -> tuple[list[dict[str, Any]], Literal["nome", "texto"]]:
+    def consulta(conexao: Any) -> tuple[list[dict[str, Any]], Literal["nome", "texto"], int]:
         achados = buscar_condicao(conexao, termo, limite=limite)
         if achados:
-            return achados, "nome"
-        return buscar_no_texto(conexao, termo, limite=limite_texto), "texto"
+            return achados, "nome", contar_condicao(conexao, termo)
+        return (
+            buscar_no_texto(conexao, termo, limite=limite_texto),
+            "texto",
+            contar_no_texto(conexao, termo),
+        )
 
     resultado, aviso = _ler(caminho_db, consulta)
     if resultado is None:
         return RespostaConsulta(termo=termo, total=0, resultados=[], aviso=aviso)
 
-    linhas, origem = resultado
+    linhas, origem, total = resultado
+    truncado = total > len(linhas)
     if not linhas:
         aviso = "Nenhum PCDT encontrado para essa condição."
     elif origem == "texto":
         aviso = AVISO_SO_NO_TEXTO
+    if truncado:
+        aviso = (
+            f"{aviso or ''} Casaram {total} protocolos e estão aqui os {len(linhas)} "
+            f"primeiros. Não conte os resultados para dizer quantos tratam do assunto: "
+            f"use 'total' e aumente 'limite' para ver mais."
+        ).strip()
     return RespostaConsulta(
         termo=termo,
-        total=len(linhas),
+        total=total,
+        retornados=len(linhas),
+        truncado=truncado,
         resultados=[_para_modelo(linha, origem) for linha in linhas],
         aviso=aviso,
     )

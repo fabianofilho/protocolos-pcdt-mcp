@@ -8,6 +8,7 @@ import sys
 from mcp.server.mcpserver import MCPServer
 
 from protocolos_pcdt_mcp.config import carregar_config
+from protocolos_pcdt_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
 from protocolos_pcdt_mcp.mcp_server.tools.pcdt import RespostaConsulta, RespostaResumo
 from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo as _consultar_protocolo
 from protocolos_pcdt_mcp.mcp_server.tools.pcdt import resumir_conduta as _resumir_conduta
@@ -18,7 +19,7 @@ mcp = MCPServer("protocolos-pcdt-mcp", version="0.1.0")
 
 
 @mcp.tool()
-async def consultar_protocolo(doenca_ou_condicao: str) -> RespostaConsulta:
+async def consultar_protocolo(doenca_ou_condicao: str, limite: int = 10) -> RespostaConsulta:
     """Consulta o PCDT vigente do Ministério da Saúde para uma doença ou condição.
 
     Procura primeiro no nome dos PCDTs, sem acento, com as palavras em qualquer
@@ -26,6 +27,10 @@ async def consultar_protocolo(doenca_ou_condicao: str) -> RespostaConsulta:
     mellitus". Se o nome não casar, procura o termo no texto dos protocolos e
     devolve até 5, com origem="texto" e um aviso: esses só citam o termo e
     muitas vezes não são o PCDT da condição.
+
+    A resposta traz `total` (quantos casam na base) e `retornados` (quantos vieram).
+    Com `truncado=true`, não conte os resultados para dizer quantos protocolos
+    tratam do assunto: um termo comum aparece no texto de dezenas deles.
 
     Cada resultado traz identificador (use em resumir_conduta), nome da
     condição, portaria, link do PDF completo e do PCDT resumido, seções extraídas
@@ -38,7 +43,9 @@ async def consultar_protocolo(doenca_ou_condicao: str) -> RespostaConsulta:
         doenca_ou_condicao: nome da doença ou condição, por exemplo "asma".
     """
     config = carregar_config()
-    return await _consultar_protocolo(doenca_ou_condicao, caminho_db=str(config.duckdb_path))
+    return await _consultar_protocolo(
+        doenca_ou_condicao, caminho_db=str(config.duckdb_path), limite=limite
+    )
 
 
 @mcp.tool()
@@ -73,6 +80,9 @@ async def resumir_conduta(pcdt_id: str, contexto_clinico: str) -> RespostaResumo
 
 def main() -> None:
     """Sobe o servidor MCP no stdio."""
+    # Este servidor so tem tools. Anunciar prompts e resources faria quem
+    # mapeia o servidor gastar chamadas para descobrir lista vazia.
+    esconder_o_que_nao_existe(mcp)
     config = carregar_config()
     logging.basicConfig(
         level=getattr(logging, config.log_level.upper(), logging.INFO),

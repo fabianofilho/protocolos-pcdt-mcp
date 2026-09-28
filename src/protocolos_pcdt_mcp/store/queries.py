@@ -82,6 +82,47 @@ def buscar_condicao(
     )
 
 
+def contar_condicao(
+    conexao: duckdb.DuckDBPyConnection,
+    termo: str,
+    *,
+    apenas_vigentes: bool = True,
+) -> int:
+    """Quantos protocolos casam pelo nome, ignorando o limite de exibição."""
+    grupos = termos_de_busca(termo)
+    if not grupos:
+        return 0
+    condicoes: list[str] = []
+    parametros: list[Any] = []
+    for grafias in grupos:
+        condicoes.append(
+            "("
+            + " OR ".join("regexp_matches(strip_accents(lower(condicao)), ?)" for _ in grafias)
+            + ")"
+        )
+        parametros.extend(f"(^|[^a-z0-9]){re.escape(g)}" for g in grafias)
+    filtro = "AND vigente" if apenas_vigentes else ""
+    linha = conexao.execute(
+        f"SELECT count(*) FROM protocolos WHERE {' AND '.join(condicoes)} {filtro}",
+        parametros,
+    ).fetchone()
+    return int(linha[0]) if linha else 0
+
+
+def contar_no_texto(conexao: duckdb.DuckDBPyConnection, termo: str) -> int:
+    """Quantos protocolos mencionam o termo no texto completo.
+
+    Sem este número, "diabetes" devolve 10 e diz total 10, quando 58 protocolos
+    mencionam o termo. Quem lê conclui que viu tudo.
+    """
+    padrao = f"%{termo.strip().lower()}%"
+    linha = conexao.execute(
+        "SELECT count(*) FROM protocolos WHERE lower(coalesce(texto_completo, '')) LIKE ?",
+        [padrao],
+    ).fetchone()
+    return int(linha[0]) if linha else 0
+
+
 def buscar_no_texto(
     conexao: duckdb.DuckDBPyConnection,
     termo: str,
