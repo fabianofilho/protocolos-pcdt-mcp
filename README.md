@@ -4,8 +4,9 @@ Servidor MCP local (stdio) que consulta os PCDTs (Protocolos Clínicos e Diretri
 Terapêuticas) do Ministério da Saúde/Conitec e resume a conduta recomendada para um
 contexto clínico específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
 
-O servidor roda só por stdio, na sua máquina, sem porta de rede. Não há transporte HTTP
-nem connector remoto nesta versão, e expô-lo por túnel não é um uso suportado.
+Por padrão o servidor roda por stdio, na sua máquina, sem porta de rede. Há também um
+[modo connector](#modo-connector-servidor-http) (HTTP), em que ele só consulta: não chama
+o LLM e, portanto, não gera resumos.
 
 > ### ⚠️ Não substitui o protocolo nem o julgamento clínico
 >
@@ -92,7 +93,9 @@ claude mcp add protocolos-pcdt --scope user \
 
 ## Uso
 
-### `consultar_protocolo(doenca_ou_condicao: str)`
+### `consultar_protocolo(doenca_ou_condicao: str, limite=10)`
+
+`limite` vai de 1 a 100 e vale para a busca pelo nome; acima disso a chamada é recusada.
 
 Busca primeiro no nome dos PCDTs vigentes:
 
@@ -147,7 +150,9 @@ aprovado; a listagem da Conitec só traz PCDTs vigentes.
 Extrai do protocolo a parte que responde ao contexto, em vez de devolver o documento
 inteiro. Aceita o `identificador` de `consultar_protocolo` ou o nome da condição sem a nota
 de revisão (por exemplo, `asma`). Precisa do LLM local e do texto completo já coletado;
-sem um dos dois, devolve só o link do PDF e um aviso dizendo o que faltou.
+sem um dos dois, devolve só o link do PDF e um aviso dizendo o que faltou. No modo
+connector o LLM nunca é chamado e a resposta vem sempre com `resumo: null` (ver
+[abaixo](#no-modo-connector-resumir_conduta-não-resume)).
 
 ```json
 {
@@ -179,6 +184,83 @@ leitura e não é. Marcadores de omissão ("[...]", "(...)", reticências) nas p
 citação são ignorados; no meio, significam que algo foi pulado, e a citação deixa de
 contar como contígua. Isso aconteceu no primeiro teste real deste projeto, com o PCDT de
 Acidentes Ofídicos, e é por isso que os dois campos existem.
+
+## Modo connector (servidor HTTP)
+
+Por padrão o servidor fala **stdio**: o cliente sobe o processo na máquina de quem usa.
+Com `TRANSPORTE=streamable-http`, ele vira um servidor alcançável pela rede, que é o que
+o Claude aceita como custom connector.
+
+```bash
+TRANSPORTE=streamable-http HTTP_PORTA=8000 uv run protocolos-pcdt-mcp
+```
+
+| Variável | Padrão | Observação |
+| --- | --- | --- |
+| `TRANSPORTE` | `stdio` | `streamable-http` liga o modo connector |
+| `HTTP_HOST` / `HTTP_PORTA` / `HTTP_PATH` | `127.0.0.1` / `8000` / `/mcp` | |
+| `HTTP_STATELESS` | `true` | cada requisição independente; escala melhor |
+| `HTTP_LIMITE_GLOBAL_POR_MINUTO` | `1200` | o teto que protege a máquina |
+| `HTTP_LIMITE_POR_MINUTO` | `600` | por origem, contra chamada direta |
+| `HTTP_HOSTS_PUBLICOS` | vazio | nomes públicos aceitos no `Host`, separados por vírgula |
+
+**Por que dois limites.** Quando o Claude chama um connector remoto, as requisições chegam
+dos **IPs da Anthropic**, não do usuário final. Limitar só por IP colocaria todos os
+usuários no mesmo balde: ou derruba todo mundo junto, ou não protege nada. O teto global é
+o que vale para esse tráfego; o por origem serve contra quem chama o servidor direto.
+`X-Forwarded-For` só é considerado quando a conexão vem do loopback (o proxy local), e
+vale a entrada mais à direita, a que o proxy acrescentou.
+
+### No modo connector, `resumir_conduta` não resume
+
+O servidor HTTP não chama o LLM. Resumir sob demanda faria quem hospeda pagar inferência
+para qualquer pessoa que chame o connector. Não existe cache de resumos neste projeto
+(cada resumo depende do contexto clínico perguntado), então, nesse modo, a tool devolve
+o identificador, a condição, o link do PDF, `resumo: null` e um aviso dizendo que nenhum
+resumo foi gerado. Nada é inventado no lugar. `consultar_protocolo` funciona igual nos
+dois modos.
+
+### Atrás de um proxy ou túnel, declare o nome público
+
+O SDK do MCP valida o cabeçalho `Host` e responde **421 Invalid Host** ao que não
+reconhece. É proteção contra DNS rebinding, um ataque em que um site qualquer faz o
+navegador da vítima conversar com um servidor que só deveria ser local. Atrás de um
+túnel, o `Host` que chega é o nome público, então ele precisa ser declarado:
+
+```bash
+HTTP_HOSTS_PUBLICOS=mcp.exemplo.ts.net
+```
+
+O loopback continua valendo junto, porque é assim que se testa o servidor de dentro da
+máquina.
+
+### Rodar como serviço
+
+[`deploy/systemd/protocolos-pcdt-connector.service`](deploy/systemd/protocolos-pcdt-connector.service)
+é a unit de usuário do servidor HTTP. Ela escuta só em `127.0.0.1:8104`; expor para fora é
+uma camada à parte (proxy reverso com TLS ou túnel) que aponta para essa porta. Ajuste
+`HTTP_HOSTS_PUBLICOS` para o seu nome público antes de habilitar.
+
+```bash
+cp deploy/systemd/protocolos-pcdt-connector.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now protocolos-pcdt-connector.service
+```
+
+### O sync escreve na base que o servidor lê
+
+O servidor abre a base somente para leitura a cada requisição e nunca escreve nela. O
+`pcdt-cli sync`, por outro lado, grava direto em `DUCKDB_PATH` e segura a base durante a
+coleta inteira (até uma hora, com os downloads de PDF). O DuckDB não aceita leitor e
+escritor de processos diferentes ao mesmo tempo, então:
+
+- enquanto o sync roda, as consultas ao connector recebem o aviso de base travada, em vez
+  de resultado;
+- se o sync começar no exato momento de uma consulta, ele falha e o timer tenta de novo
+  na noite seguinte.
+
+O `radar-cfm-mcp` resolve isso construindo a base ao lado e trocando por rename
+(`--publicar`). Este projeto ainda não tem esse mecanismo.
 
 ## Limitações conhecidas
 
@@ -232,6 +314,9 @@ desatualizados e devolvem 403; os que funcionam terminam em `.zip`.
 - **Não sai:** a condição e o contexto clínico que você consulta ficam entre a base local
   e o seu LLM local.
 - Sem telemetria, sem analytics.
+- **No modo connector**, o que você consulta passa pela máquina que hospeda o servidor
+  (e pelo túnel ou proxy na frente dela). O contexto clínico não vai para LLM nenhum,
+  porque nesse modo o LLM não é chamado.
 
 Atenção: o `contexto_clinico` que você digita vai para o seu LLM. Se ele estiver
 hospedado fora da sua máquina, o texto vai junto, este projeto não impede isso, ao
