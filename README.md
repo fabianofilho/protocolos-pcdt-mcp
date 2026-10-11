@@ -49,8 +49,8 @@ cp .env.example .env
 
 ```bash
 uv run pcdt-cli llm                 # confirma o LLM local
-uv run pcdt-cli sync --max-pdfs 5   # teste rápido
-uv run pcdt-cli sync                # coleta (20 PDFs por execução, por padrão)
+uv run pcdt-cli sync --max-pdfs 5   # teste rápido, grava direto na base
+uv run pcdt-cli sync --publicar     # coleta (20 PDFs por execução) e troca a base no fim
 uv run pcdt-cli consultar asma
 uv run pcdt-cli resumir "asma" "paciente gestante"
 ```
@@ -63,8 +63,8 @@ ideia é a base completar ao longo de algumas noites em vez de sobrecarregar o p
 
 O servidor MCP não agenda nada sozinho. O caminho oficial para manter a base atualizada é o
 timer systemd de usuário versionado em [`deploy/systemd/`](deploy/systemd/): ele roda
-`pcdt-cli sync` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera o disparo
-perdido se a máquina estava desligada.
+`pcdt-cli sync --publicar` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera
+o disparo perdido se a máquina estava desligada.
 
 As units supõem o clone em `~/protocolos-pcdt-mcp` e o `uv` em `~/.local/bin/uv`. Se os
 seus caminhos forem outros, edite `WorkingDirectory` e `ExecStart` antes de copiar.
@@ -247,20 +247,28 @@ systemctl --user daemon-reload
 systemctl --user enable --now protocolos-pcdt-connector.service
 ```
 
-### O sync escreve na base que o servidor lê
+### O sync não interrompe quem está lendo
 
-O servidor abre a base somente para leitura a cada requisição e nunca escreve nela. O
-`pcdt-cli sync`, por outro lado, grava direto em `DUCKDB_PATH` e segura a base durante a
-coleta inteira (até uma hora, com os downloads de PDF). O DuckDB não aceita leitor e
-escritor de processos diferentes ao mesmo tempo, então:
+`pcdt-cli sync --publicar` constrói a base nova ao lado e troca as duas por rename no
+fim. O servidor abre a base somente para leitura a cada requisição; quem já abriu continua
+no arquivo antigo até fechar, e quem abrir depois pega o novo. É o modo que o timer usa,
+e por dois motivos.
 
-- enquanto o sync roda, as consultas ao connector recebem o aviso de base travada, em vez
-  de resultado;
-- se o sync começar no exato momento de uma consulta, ele falha e o timer tenta de novo
-  na noite seguinte.
+O primeiro é a concorrência: o DuckDB não aceita leitor e escritor de processos diferentes
+ao mesmo tempo. Sem a troca, as consultas durante a coleta (até uma hora, com os downloads
+de PDF) recebiam o aviso de base travada em vez de resultado, e um sync que começasse no
+instante de uma consulta falhava.
 
-O `radar-cfm-mcp` resolve isso construindo a base ao lado e trocando por rename
-(`--publicar`). Este projeto ainda não tem esse mecanismo.
+O segundo é o tamanho. O DuckDB não devolve o espaço das páginas antigas, e a coleta
+reescreve o texto completo dos protocolos todo dia: em 11/10/2026, depois de semanas de
+syncs diários, o arquivo estava em **1.062 MB para 132 protocolos**, contra 49 MB
+compactado. A base nova é clonada da servida com `COPY FROM DATABASE`, e a cópia já sai
+compactada.
+
+Sem `--publicar`, o sync grava direto em `DUCKDB_PATH`, que é o que se quer num teste
+rápido com `--max-pdfs`. A troca recusa publicar uma base que encolheu mais de 10% em
+número de protocolos, para coleta interrompida não substituir a base boa em silêncio;
+quando a queda é real, `--forcar` publica.
 
 ## Limitações conhecidas
 
