@@ -1,0 +1,45 @@
+# Servidor MCP dos PCDTs em HTTP, para hospedar como connector.
+#
+# Escuta so no loopback de proposito. Quem publica para fora e a camada da
+# frente (proxy reverso com TLS, ou Tailscale Funnel), que aponta para esta
+# porta. Assim a decisao de expor fica num lugar so, e nao espalhada em
+# variavel de ambiente.
+#
+# Instalar como servico de usuario:
+#   cp deploy/systemd/protocolos-pcdt-connector.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now protocolos-pcdt-connector
+#
+# Neste modo o servidor nao chama o LLM: resumir_conduta devolve o link do PDF
+# e um aviso de que nao ha resumo. A coleta NAO roda aqui: ela e
+# protocolos-pcdt-sync.service (disparada por protocolos-pcdt-sync.timer), que
+# hoje grava direto na base servida. Enquanto ela roda, as consultas recebem o
+# aviso de base travada. Este processo so le.
+
+[Unit]
+Description=Servidor MCP dos PCDTs em HTTP (modo connector)
+Documentation=https://github.com/fabianofilho/protocolos-pcdt-mcp
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/protocolos-pcdt-mcp
+Environment=TRANSPORTE=streamable-http
+Environment=HTTP_HOST=127.0.0.1
+Environment=HTTP_PORTA=8104
+Environment=HTTP_PATH=/mcp
+Environment=HTTP_STATELESS=true
+# Nome publico pelo qual o tunel ou proxy chama este servidor. Sem ele, o SDK
+# responde 421 (Invalid Host) a tudo que vier de fora, por protecao contra DNS
+# rebinding. Varios nomes separados por virgula.
+Environment=HTTP_HOSTS_PUBLICOS=debian-f.tailf42a96.ts.net
+ExecStart=%h/.local/bin/uv --directory %h/protocolos-pcdt-mcp run protocolos-pcdt-mcp
+Restart=always
+RestartSec=5
+ProtectSystem=strict
+ReadWritePaths=%h/protocolos-pcdt-mcp/data
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

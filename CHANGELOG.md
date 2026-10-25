@@ -3,6 +3,21 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). O projeto
 segue [versionamento semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+
+- Modo connector: com `TRANSPORTE=streamable-http` o servidor atende por HTTP
+  (streamable-http, stateless), com teto de requisições global e por origem, validação
+  do cabeçalho `Host` (`HTTP_HOSTS_PUBLICOS`) e unit
+  `deploy/systemd/protocolos-pcdt-connector.service`. O padrão continua stdio.
+
+### Mudou
+
+- No modo connector, `resumir_conduta` não chama o LLM: devolve `resumo: null`, o link do
+  PDF e um aviso de que nenhum resumo foi gerado.
+- `consultar_protocolo` aceita `limite` de 1 a 100; acima disso a chamada é recusada.
+
 ## [0.1.0] - 2026-09-24
 
 Primeira versão pública.

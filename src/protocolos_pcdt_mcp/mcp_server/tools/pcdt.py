@@ -38,6 +38,12 @@ AVISO_LEITURA = (
     "O resumo é uma ajuda de leitura gerada por LLM local, não substitui o protocolo. "
     "Confira a citação literal e abra o PDF completo antes de qualquer decisão."
 )
+AVISO_SEM_LLM_NO_CONNECTOR = (
+    "Este servidor está em modo connector (HTTP público) e não gera resumos: não há "
+    "LLM ligado a ele e não existe resumo guardado para este protocolo e contexto. "
+    "Nenhum resumo foi produzido. Abra o PDF completo pelo link, ou rode o servidor "
+    "localmente por stdio com um LLM configurado para obter o resumo com citação conferida."
+)
 
 
 class Protocolo(BaseModel):
@@ -199,8 +205,14 @@ async def resumir_conduta(
     qwen_endpoint: str,
     qwen_model: str,
     timeout_segundos: float = 180.0,
+    permitir_llm: bool = True,
 ) -> RespostaResumo:
-    """Resumo da conduta do protocolo, direcionado a um contexto clínico."""
+    """Resumo da conduta do protocolo, direcionado a um contexto clínico.
+
+    Com ``permitir_llm=False`` (modo connector) o LLM não é chamado. Não há cache
+    de resumos, então a resposta traz o protocolo, o link do PDF e um aviso
+    explícito de que nenhum resumo foi gerado, com ``resumo=None``.
+    """
     linha, aviso = _ler(caminho_db, lambda c: por_identificador(c, pcdt_id.strip().lower()))
     if aviso:
         return RespostaResumo(
@@ -228,6 +240,17 @@ async def resumir_conduta(
                 "O texto completo deste protocolo ainda não foi coletado. "
                 "Abra o PDF pelo link, ou rode 'pcdt-cli sync' para baixá-lo."
             ),
+        )
+
+    if not permitir_llm:
+        # Modo connector: nenhuma chamada ao LLM. Quem hospeda não paga
+        # inferência por todo mundo, e nada é inventado no lugar do resumo.
+        return RespostaResumo(
+            identificador=linha["identificador"],
+            condicao=linha["condicao"],
+            contexto_clinico=contexto_clinico,
+            url_pdf=linha.get("url_pdf"),
+            aviso=AVISO_SEM_LLM_NO_CONNECTOR,
         )
 
     try:

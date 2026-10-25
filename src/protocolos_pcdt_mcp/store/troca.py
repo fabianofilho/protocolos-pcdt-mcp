@@ -1,0 +1,181 @@
+"""Publicação da base por troca atômica, para a base não inchar.
+
+O DuckDB não devolve o espaço de páginas antigas: uma coleta diária que faz
+upsert direto no arquivo servido cresce sem limite, mesmo sem linha nova.
+Medido nesta base em 11/10/2026, depois de uma semana de coletas diárias:
+1.062 MB no arquivo para 132 protocolos, 49 MB depois de compactar,
+21,8 vezes de folga.
+
+A coleta passa a construir a base nova ao lado, com ``COPY FROM DATABASE`` do
+próprio DuckDB, e no fim um ``os.replace`` troca as duas. A cópia sai compactada
+de graça, e o rename é atômico no POSIX: quem já abriu continua no inode antigo
+até fechar, quem abrir depois pega o novo.
+
+Copiar pelo DuckDB e não com ``cp`` importa: o ``cp`` pegaria o arquivo sem o WAL
+pendente. E a base nova nasce como cópia da servida, nunca vazia, porque nem tudo
+nela vem do download: o texto extraído do PDF e as seções segmentadas custaram download e
+parsing, e a coleta diária não baixa PDF de tudo.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+SUFIXO_EM_CONSTRUCAO = ".novo"
+SUFIXO_ANTERIOR = ".anterior"
+
+
+def caminho_em_construcao(destino: Path | str) -> Path:
+    """Onde a coleta escreve enquanto trabalha.
+
+    Fica no mesmo diretório de propósito: ``os.replace`` só é atômico dentro do
+    mesmo sistema de arquivos.
+    """
+    destino = Path(destino)
+    return destino.with_name(destino.name + SUFIXO_EM_CONSTRUCAO)
+
+
+class BaseSuspeita(RuntimeError):
+    """A base nova encolheu demais em relação à servida.
+
+    Coleta interrompida por rede ruim, fonte respondendo truncado ou teste com
+    ``--max-pdfs 5``, que baixa poucos PDFs, produzem uma base pequena e aparentemente válida.
+    Publicar isso substitui a base boa em silêncio, e num connector isso chega
+    a todo mundo que consulta.
+    """
+
+
+def _contar(caminho: Path, tabela: str) -> int:
+    """Linhas da tabela, ou -1 quando o arquivo não dá para abrir."""
+    import duckdb
+
+    try:
+        conexao = duckdb.connect(str(caminho), read_only=True)
+    except duckdb.Error:
+        return -1
+    try:
+        linha = conexao.execute(f"SELECT count(*) FROM {tabela}").fetchone()
+        return int(linha[0]) if linha else 0
+    except duckdb.Error:
+        return -1
+    finally:
+        conexao.close()
+
+
+def publicar(
+    destino: Path | str,
+    *,
+    guardar_anterior: bool = True,
+    tabela_referencia: str = "protocolos",
+    fracao_minima: float = 0.9,
+    forcar: bool = False,
+) -> Path:
+    """Troca a base em construção pela servida, atomicamente.
+
+    Args:
+        destino: o arquivo que o servidor lê.
+        guardar_anterior: mantém a versão trocada como ``.anterior``, para
+            poder voltar atrás se a coleta nova vier ruim.
+        tabela_referencia: tabela usada na checagem de tamanho.
+        fracao_minima: a base nova precisa ter ao menos esta fração das linhas
+            da servida. O padrão tolera remoção normal na fonte e barra queda
+            abrupta.
+        forcar: publica mesmo com a base menor. Para o primeiro carregamento ou
+            quando a fonte realmente encolheu.
+
+    Raises:
+        FileNotFoundError: quando não há base em construção para publicar.
+        BaseSuspeita: quando a base nova encolheu além do tolerado.
+    """
+    destino = Path(destino)
+    origem = caminho_em_construcao(destino)
+    if not origem.exists():
+        raise FileNotFoundError(f"nada para publicar: {origem} não existe")
+
+    if not forcar and destino.exists():
+        atual = _contar(destino, tabela_referencia)
+        nova = _contar(origem, tabela_referencia)
+        if atual > 0 and nova >= 0 and nova < atual * fracao_minima:
+            raise BaseSuspeita(
+                f"a base nova tem {nova} linha(s) em {tabela_referencia} contra {atual} "
+                f"da servida ({nova / atual:.0%}). Publicação recusada. Se a fonte "
+                "realmente encolheu, publique com forcar=True."
+            )
+
+    if guardar_anterior and destino.exists():
+        anterior = destino.with_name(destino.name + SUFIXO_ANTERIOR)
+        os.replace(destino, anterior)
+        logger.info("base anterior guardada em %s", anterior.name)
+
+    os.replace(origem, destino)
+    logger.info("base publicada: %s (%d bytes)", destino, destino.stat().st_size)
+
+    # O WAL pertence ao arquivo antigo: deixado para trás, o DuckDB tentaria
+    # aplicá-lo sobre a base nova.
+    wal = origem.with_name(origem.name + ".wal")
+    if wal.exists():
+        wal.unlink()
+    return destino
+
+
+def _citar(caminho: Path) -> str:
+    """Escapa aspas simples para interpolar o caminho no SQL do ATTACH."""
+    return str(caminho).replace("'", "''")
+
+
+def clonar_para_construcao(destino: Path | str) -> Path:
+    """Começa a base em construção como cópia da que está sendo servida.
+
+    Construir do zero publicaria só o que a varredura de hoje trouxe. Uma
+    resolução que saia do portal, ou uma varredura interrompida no meio, sumiria
+    da base servida sem aviso. Com a cópia, a coleta faz upsert por cima do que
+    já existe: o pior caso vira uma base desatualizada, não uma base menor.
+
+    A cópia é feita pelo próprio DuckDB, não pelo sistema de arquivos, porque um
+    ``cp`` pegaria o arquivo sem o WAL pendente. De quebra, sai compactada: a
+    base acumula folga a cada upsert e a cópia devolve o tamanho real.
+
+    Sem base servida ainda, devolve o caminho vazio: a primeira coleta constrói
+    do nada mesmo.
+    """
+    destino = Path(destino)
+    origem = caminho_em_construcao(destino)
+    for resto in (origem, Path(str(origem) + ".wal")):
+        if resto.exists():
+            resto.unlink()
+    if not destino.exists():
+        return origem
+
+    import duckdb
+
+    # Conexão em memória com as duas anexadas: assim os nomes são explícitos, em
+    # vez de dependerem de como o DuckDB batiza a base principal pelo nome do
+    # arquivo (que aqui termina em ".duckdb.novo").
+    conexao = duckdb.connect()
+    try:
+        conexao.execute(f"ATTACH '{_citar(destino)}' AS servida (READ_ONLY)")
+        conexao.execute(f"ATTACH '{_citar(origem)}' AS nova")
+        conexao.execute("COPY FROM DATABASE servida TO nova")
+    finally:
+        conexao.close()
+    logger.info("base em construção clonada de %s", destino.name)
+    return origem
+
+
+def reverter(destino: Path | str) -> Path:
+    """Volta para a base anterior, se houver.
+
+    Raises:
+        FileNotFoundError: quando não há versão anterior guardada.
+    """
+    destino = Path(destino)
+    anterior = destino.with_name(destino.name + SUFIXO_ANTERIOR)
+    if not anterior.exists():
+        raise FileNotFoundError(f"não há base anterior em {anterior}")
+    os.replace(anterior, destino)
+    logger.warning("base revertida para a versão anterior")
+    return destino

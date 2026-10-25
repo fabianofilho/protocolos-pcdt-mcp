@@ -13,13 +13,27 @@ from protocolos_pcdt_mcp.config import carregar_config
 from protocolos_pcdt_mcp.llm.qwen_client import QwenClient
 from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo, resumir_conduta
 from protocolos_pcdt_mcp.store.db import conectar, reindexar_fts
+from protocolos_pcdt_mcp.store.troca import BaseSuspeita, clonar_para_construcao, publicar
 
 app = typer.Typer(help="Administração do protocolos-pcdt-mcp", no_args_is_help=True)
 
 
 @app.command()
-def sync(max_pdfs: int = typer.Option(20, help="Teto de PDFs baixados nesta execução")) -> None:
-    """Atualiza a base a partir do portal da Conitec."""
+def sync(
+    max_pdfs: int = typer.Option(20, help="Teto de PDFs baixados nesta execução"),
+    publicar_ao_fim: bool = typer.Option(
+        False,
+        "--publicar",
+        help="Constrói a base ao lado e troca por rename no fim (evita o inchaço)",
+    ),
+    forcar: bool = typer.Option(False, "--forcar", help="Publica mesmo se a base nova encolheu"),
+) -> None:
+    """Atualiza a base a partir do portal da Conitec.
+
+    Com ``--publicar``, a coleta escreve numa base nova, clonada da atual, e só
+    troca pela servida no fim. O clone sai compactado, o que evita o inchaço de
+    quem faz upsert diário direto no arquivo: 1.062 MB viraram 49 MB.
+    """
     config = carregar_config()
     logging.basicConfig(
         level=getattr(logging, config.log_level.upper(), logging.INFO),
@@ -27,7 +41,8 @@ def sync(max_pdfs: int = typer.Option(20, help="Teto de PDFs baixados nesta exec
     )
 
     async def rodar() -> None:
-        with conectar(config.duckdb_path) as conexao:
+        alvo = clonar_para_construcao(config.duckdb_path) if publicar_ao_fim else config.duckdb_path
+        with conectar(alvo) as conexao:
             resultado = await coletar(
                 conexao,
                 delay_segundos=config.coleta_delay_segundos,
@@ -40,6 +55,13 @@ def sync(max_pdfs: int = typer.Option(20, help="Teto de PDFs baixados nesta exec
                 f"{resultado.pdfs_baixados} PDFs, {resultado.despromovidos} fora da listagem"
             )
             typer.echo(f"índice FTS: {'criado' if indexado else 'indisponível (busca por LIKE)'}")
+        if publicar_ao_fim:
+            try:
+                publicado = publicar(config.duckdb_path, forcar=forcar)
+            except BaseSuspeita as erro:
+                typer.secho(f"publicação recusada: {erro}", fg=typer.colors.RED)
+                raise typer.Exit(code=1) from erro
+            typer.secho(f"base publicada: {publicado}", fg=typer.colors.GREEN)
 
     asyncio.run(rodar())
 
