@@ -11,10 +11,10 @@ import httpx
 import pytest
 import respx
 
-from protocolos_pcdt_mcp.llm.resumir import conferir_citacao
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo, resumir_conduta
-from protocolos_pcdt_mcp.store.db import aplicar_schema, conectar
-from protocolos_pcdt_mcp.store.queries import buscar_condicao, gravar, por_identificador
+from galeno_mcp.llm.resumir import conferir_citacao
+from galeno_mcp.mcp_server.tools.pcdt import buscar_pcdt, resumir_conduta
+from galeno_mcp.store.db import aplicar_schema, conectar
+from galeno_mcp.store.queries import buscar_condicao, gravar, por_identificador
 
 ENDPOINT = "http://llm-de-teste/v1"
 MODELO = "modelo-de-teste"
@@ -96,7 +96,7 @@ def test_citacao_ignora_espacamento() -> None:
 
 
 async def test_base_inexistente_avisa(caminho_db: str) -> None:
-    resposta = await consultar_protocolo("asma", caminho_db=caminho_db)
+    resposta = await buscar_pcdt("asma", caminho_db=caminho_db)
     assert resposta.total == 0
     assert resposta.aviso is not None and "sincronizada" in resposta.aviso
 
@@ -104,7 +104,7 @@ async def test_base_inexistente_avisa(caminho_db: str) -> None:
 async def test_consulta_traz_link_oficial(caminho_db: str) -> None:
     with conectar(caminho_db) as conexao:
         gravar(conexao, [_registro()])
-    resposta = await consultar_protocolo("asma", caminho_db=caminho_db)
+    resposta = await buscar_pcdt("asma", caminho_db=caminho_db)
     assert resposta.total == 1
     assert resposta.resultados[0].url_pdf is not None
     assert resposta.resultados[0].secoes_disponiveis == ["tratamento"]
@@ -182,7 +182,7 @@ async def test_identificador_inexistente(caminho_db: str) -> None:
     resposta = await resumir_conduta(
         "nao-existe", "adulto", caminho_db=caminho_db, qwen_endpoint=ENDPOINT, qwen_model=MODELO
     )
-    assert resposta.aviso is not None and "consultar_protocolo" in resposta.aviso
+    assert resposta.aviso is not None and "buscar_pcdt" in resposta.aviso
 
 
 # --- fração verificada -----------------------------------------------------
@@ -190,7 +190,7 @@ async def test_identificador_inexistente(caminho_db: str) -> None:
 
 def test_fracao_detecta_costura_de_trechos_reais() -> None:
     """O caso real: frases que existem, mas em partes diferentes do documento."""
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     protocolo = (
         "Primeira linha: fármaco A, 500 mg, duas vezes ao dia. "
@@ -206,13 +206,13 @@ def test_fracao_detecta_costura_de_trechos_reais() -> None:
 
 
 def test_fracao_zero_para_citacao_inventada() -> None:
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     assert fracao_verificada("Frase que não existe em lugar nenhum do documento.", TEXTO) == 0.0
 
 
 def test_fracao_zero_para_citacao_vazia() -> None:
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     assert fracao_verificada(None, TEXTO) == 0.0
 
@@ -236,7 +236,7 @@ async def test_aviso_distingue_costura_de_invencao(caminho_db: str) -> None:
 
 def test_prompt_carrega_de_dentro_do_pacote() -> None:
     """O prompt precisa vir do pacote instalado, não de um diretório ao lado do repo."""
-    from protocolos_pcdt_mcp.llm.resumir import renderizar_prompt
+    from galeno_mcp.llm.resumir import renderizar_prompt
 
     assert "citacao_literal" in renderizar_prompt()
 
@@ -248,7 +248,7 @@ TRECHO_REAL = "Primeira linha: fármaco A, 500 mg, duas vezes ao dia, por 30 dia
 
 def test_elipse_nas_pontas_nao_derruba_a_citacao() -> None:
     """Bug real: '[...] ' + trecho real dava fração 0.5 e 'NÃO encontrada'."""
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     for marcador in ("[...]", "(...)", "...", chr(0x2026)):
         citacao = f"{marcador} {TRECHO_REAL} {marcador}"
@@ -257,7 +257,7 @@ def test_elipse_nas_pontas_nao_derruba_a_citacao() -> None:
 
 
 def test_elipse_no_meio_nao_e_contigua_mas_conta_na_fracao() -> None:
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     protocolo = (
         "Primeira linha: fármaco A, 500 mg, duas vezes ao dia. "
@@ -273,7 +273,7 @@ def test_elipse_no_meio_nao_e_contigua_mas_conta_na_fracao() -> None:
 
 
 def test_so_elipse_nao_confere() -> None:
-    from protocolos_pcdt_mcp.llm.resumir import fracao_verificada
+    from galeno_mcp.llm.resumir import fracao_verificada
 
     assert conferir_citacao("[...]", TEXTO) is False
     assert fracao_verificada("...", TEXTO) == 0.0
@@ -378,7 +378,7 @@ async def test_resultado_so_do_texto_vem_marcado_e_com_aviso(caminho_db: str) ->
                 )
             ],
         )
-    resposta = await consultar_protocolo("depressão", caminho_db=caminho_db)
+    resposta = await buscar_pcdt("depressão", caminho_db=caminho_db)
     assert resposta.total == 1
     assert resposta.resultados[0].origem == "texto"
     assert resposta.aviso is not None and "apenas citam o termo" in resposta.aviso
@@ -387,7 +387,7 @@ async def test_resultado_so_do_texto_vem_marcado_e_com_aviso(caminho_db: str) ->
 async def test_resultado_pelo_nome_vem_marcado_sem_aviso(caminho_db: str) -> None:
     with conectar(caminho_db) as conexao:
         gravar(conexao, [_registro()])
-    resposta = await consultar_protocolo("asma", caminho_db=caminho_db)
+    resposta = await buscar_pcdt("asma", caminho_db=caminho_db)
     assert resposta.resultados[0].origem == "nome"
     assert resposta.aviso is None
 
@@ -419,7 +419,7 @@ async def test_total_e_quantos_casam_nao_o_tamanho_da_lista(caminho_db: str) -> 
             [[str(i), f"CONDICAO RARA {i}"] for i in range(20)],
         )
 
-    r = await consultar_protocolo("diabetes", caminho_db=caminho_db, limite_texto=5)
+    r = await buscar_pcdt("diabetes", caminho_db=caminho_db, limite_texto=5)
 
     assert r.total == 20, "o universo que casa, não a página"
     assert r.retornados == 5

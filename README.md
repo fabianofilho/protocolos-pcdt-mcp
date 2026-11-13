@@ -1,8 +1,11 @@
-# protocolos-pcdt-mcp
+# galeno-mcp
 
-Servidor MCP local (stdio) que consulta os PCDTs (Protocolos Clínicos e Diretrizes
-Terapêuticas) do Ministério da Saúde/Conitec e resume a conduta recomendada para um
-contexto clínico específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
+Servidor MCP de contexto clínico. O nome é de Galeno, médico e escritor da Antiguidade que
+sistematizou o conhecimento clínico do seu tempo.
+
+Hoje consulta os PCDTs (Protocolos Clínicos e Diretrizes Terapêuticas) do Ministério da
+Saúde/Conitec e resume a conduta recomendada para um contexto clínico específico, usando
+um LLM local. Toda resposta traz o link do PDF oficial.
 
 Por padrão o servidor roda por stdio, na sua máquina, sem porta de rede. Há também um
 [modo connector](#modo-connector-servidor-http) (HTTP), em que ele só consulta: não chama
@@ -32,8 +35,8 @@ o LLM e, portanto, não gera resumos.
 ## Instalação
 
 ```bash
-git clone https://github.com/fabianofilho/protocolos-pcdt-mcp.git
-cd protocolos-pcdt-mcp
+git clone https://github.com/fabianofilho/galeno-mcp.git
+cd galeno-mcp
 uv sync
 cp .env.example .env
 ```
@@ -66,17 +69,17 @@ timer systemd de usuário versionado em [`deploy/systemd/`](deploy/systemd/): el
 `pcdt-cli sync --publicar` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera
 o disparo perdido se a máquina estava desligada.
 
-As units supõem o clone em `~/protocolos-pcdt-mcp` e o `uv` em `~/.local/bin/uv`. Se os
+As units supõem o clone em `~/galeno-mcp` e o `uv` em `~/.local/bin/uv`. Se os
 seus caminhos forem outros, edite `WorkingDirectory` e `ExecStart` antes de copiar.
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp deploy/systemd/protocolos-pcdt-sync.service deploy/systemd/protocolos-pcdt-sync.timer \
+cp deploy/systemd/galeno-sync.service deploy/systemd/galeno-sync.timer \
   ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now protocolos-pcdt-sync.timer
-systemctl --user list-timers protocolos-pcdt-sync.timer   # próximo disparo
-journalctl --user -u protocolos-pcdt-sync.service         # saída dos syncs
+systemctl --user enable --now galeno-sync.timer
+systemctl --user list-timers galeno-sync.timer   # próximo disparo
+journalctl --user -u galeno-sync.service         # saída dos syncs
 ```
 
 Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
@@ -84,11 +87,11 @@ Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
 ### Ligando ao Claude Code
 
 ```bash
-claude mcp add protocolos-pcdt --scope user \
-  -e DUCKDB_PATH=/caminho/para/protocolos-pcdt-mcp/data/pcdt.duckdb \
+claude mcp add galeno --scope user \
+  -e DUCKDB_PATH=/caminho/para/galeno-mcp/data/pcdt.duckdb \
   -e QWEN_ENDPOINT=http://127.0.0.1:8080/v1 \
   -e QWEN_MODEL=local-model \
-  -- uv --directory /caminho/para/protocolos-pcdt-mcp run protocolos-pcdt-mcp
+  -- uv --directory /caminho/para/galeno-mcp run galeno-mcp
 ```
 
 ## Uso
@@ -192,7 +195,7 @@ Com `TRANSPORTE=streamable-http`, ele vira um servidor alcançável pela rede, q
 o Claude aceita como custom connector.
 
 ```bash
-TRANSPORTE=streamable-http HTTP_PORTA=8000 uv run protocolos-pcdt-mcp
+TRANSPORTE=streamable-http HTTP_PORTA=8000 uv run galeno-mcp
 ```
 
 | Variável | Padrão | Observação |
@@ -236,15 +239,15 @@ máquina.
 
 ### Rodar como serviço
 
-[`deploy/systemd/protocolos-pcdt-connector.service`](deploy/systemd/protocolos-pcdt-connector.service)
+[`deploy/systemd/galeno-connector.service`](deploy/systemd/galeno-connector.service)
 é a unit de usuário do servidor HTTP. Ela escuta só em `127.0.0.1:8104`; expor para fora é
 uma camada à parte (proxy reverso com TLS ou túnel) que aponta para essa porta. Ajuste
 `HTTP_HOSTS_PUBLICOS` para o seu nome público antes de habilitar.
 
 ```bash
-cp deploy/systemd/protocolos-pcdt-connector.service ~/.config/systemd/user/
+cp deploy/systemd/galeno-connector.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now protocolos-pcdt-connector.service
+systemctl --user enable --now galeno-connector.service
 ```
 
 ### O sync não interrompe quem está lendo

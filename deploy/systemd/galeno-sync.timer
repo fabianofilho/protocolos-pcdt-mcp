@@ -1,6 +1,6 @@
 [Unit]
 Description=Agenda o sync diario dos PCDTs da Conitec
-Documentation=https://github.com/fabianofilho/protocolos-pcdt-mcp
+Documentation=https://github.com/fabianofilho/galeno-mcp
 
 [Timer]
 OnCalendar=*-*-* 02:40:00

@@ -10,11 +10,11 @@ from typing import Any
 
 import duckdb
 
-from protocolos_pcdt_mcp.coleta.downloader import CachePdf, Downloader
-from protocolos_pcdt_mcp.coleta.listagem import ItemPcdt, baixar_listagem, baixar_status
-from protocolos_pcdt_mcp.extract.parser import extrair
-from protocolos_pcdt_mcp.nomes import chave_nome
-from protocolos_pcdt_mcp.store.queries import gravar, marcar_ausentes_como_substituidos
+from galeno_mcp.coleta.downloader import CachePdf, Downloader
+from galeno_mcp.coleta.listagem import ItemPcdt, baixar_listagem, baixar_status
+from galeno_mcp.extract.parser import extrair
+from galeno_mcp.nomes import chave_nome
+from galeno_mcp.store.queries import gravar, marcar_ausentes_como_substituidos
 
 logger = logging.getLogger(__name__)
 

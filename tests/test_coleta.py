@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from protocolos_pcdt_mcp.coleta.downloader import CachePdf
-from protocolos_pcdt_mcp.coleta.listagem import (
+from galeno_mcp.coleta.downloader import CachePdf
+from galeno_mcp.coleta.listagem import (
     ItemPcdt,
     ListagemIndisponivel,
     parse_listagem,
     parse_status_csv,
 )
-from protocolos_pcdt_mcp.nomes import chave_nome, separar_nota
+from galeno_mcp.nomes import chave_nome, separar_nota
 
 
 def test_parse_da_tabela_real(html_listagem: str) -> None:
@@ -39,7 +39,7 @@ def test_pcdt_resumido_e_capturado(html_listagem: str) -> None:
 
 
 def test_identificador_normaliza_espacos() -> None:
-    from protocolos_pcdt_mcp.coleta.listagem import ItemPcdt
+    from galeno_mcp.coleta.listagem import ItemPcdt
 
     item = ItemPcdt(
         condicao="  Diabetes   Mellitus  Tipo 1 ",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from protocolos_pcdt_mcp.extract.parser import extrair, limpar, segmentar
+from galeno_mcp.extract.parser import extrair, limpar, segmentar
 
 PROTOCOLO = """PROTOCOLO CLÍNICO E DIRETRIZES TERAPÊUTICAS
 

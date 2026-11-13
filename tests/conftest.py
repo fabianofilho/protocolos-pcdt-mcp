@@ -10,7 +10,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from protocolos_pcdt_mcp.store.db import aplicar_schema
+from galeno_mcp.store.db import aplicar_schema
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -26,7 +26,7 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
-from protocolos_pcdt_mcp.nomes import chave_nome, identificador_de, separar_nota
+from galeno_mcp.nomes import chave_nome, identificador_de, separar_nota
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ URL_STATUS_CSV = "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/CONITEC/c
 # Identifica o projeto para quem administra o portal, com link para o repositorio.
 # Um coletor publico anonimo e ma cidadania: se algo incomodar do outro lado,
 # precisa haver como descobrir o que e e falar com quem mantem.
-USER_AGENT = "protocolos-pcdt-mcp/0.1 (+https://github.com/fabianofilho/protocolos-pcdt-mcp)"
+USER_AGENT = "galeno-mcp/0.1 (+https://github.com/fabianofilho/galeno-mcp)"
 
 _DATA_NA_PORTARIA = re.compile(r"(\d{2}/\d{2}/\d{4})")
 

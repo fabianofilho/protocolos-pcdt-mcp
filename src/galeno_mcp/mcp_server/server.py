@@ -1,4 +1,4 @@
-"""Entrypoint MCP dos PCDTs: stdio por padrão, HTTP no modo connector."""
+"""Entrypoint do Galeno (MCP de contexto clínico): stdio por padrão, HTTP no modo connector."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import Icon
 from pydantic import Field
 
-from protocolos_pcdt_mcp.config import carregar_config
-from protocolos_pcdt_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
-from protocolos_pcdt_mcp.mcp_server.limite import LimitadorPorOrigem, origem_da_requisicao
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import RespostaConsulta, RespostaResumo
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo as _consultar_protocolo
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import resumir_conduta as _resumir_conduta
+from galeno_mcp.config import carregar_config
+from galeno_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
+from galeno_mcp.mcp_server.limite import LimitadorPorOrigem, origem_da_requisicao
+from galeno_mcp.mcp_server.tools.pcdt import RespostaConsulta, RespostaResumo
+from galeno_mcp.mcp_server.tools.pcdt import buscar_pcdt as _buscar_pcdt
+from galeno_mcp.mcp_server.tools.pcdt import resumir_conduta as _resumir_conduta
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ Icon(
 )
 ]
 
-mcp = MCPServer("protocolos-pcdt-mcp", version="0.1.0", icons=ICONE)
+mcp = MCPServer("galeno-mcp", version="0.1.0", icons=ICONE)
 
 # Teto do parâmetro limite. O connector é público: sem teto, uma chamada com
 # limite enorme devolve a base inteira e um cliente em laço multiplica isso.
@@ -41,7 +41,7 @@ LIMITE_MAXIMO = 100
 
 
 @mcp.tool(icons=ICONE)
-async def consultar_protocolo(
+async def buscar_pcdt(
     doenca_ou_condicao: str,
     limite: Annotated[int, Field(ge=1, le=LIMITE_MAXIMO)] = 10,
 ) -> RespostaConsulta:
@@ -69,7 +69,7 @@ async def consultar_protocolo(
         limite: quantos protocolos trazer pelo nome, de 1 a 100.
     """
     config = carregar_config()
-    return await _consultar_protocolo(
+    return await _buscar_pcdt(
         doenca_ou_condicao, caminho_db=str(config.duckdb_path), limite=limite
     )
 
@@ -93,7 +93,7 @@ async def resumir_conduta(pcdt_id: str, contexto_clinico: str) -> RespostaResumo
     foi gerado. Nesse caso não afirme nada sobre a conduta sem abrir o PDF.
 
     Args:
-        pcdt_id: identificador devolvido por consultar_protocolo. O nome da
+        pcdt_id: identificador devolvido por buscar_pcdt. O nome da
             condição sem a nota de revisão também é aceito, por exemplo "asma".
         contexto_clinico: a situação concreta sobre a qual se quer a conduta.
     """
@@ -185,7 +185,7 @@ def main() -> None:
     )
 
     if config.transporte == "stdio":
-        logger.info("protocolos-pcdt-mcp subindo em stdio (base em %s)", config.duckdb_path)
+        logger.info("galeno-mcp subindo em stdio (base em %s)", config.duckdb_path)
         mcp.run(transport="stdio")
         return
 
@@ -206,7 +206,7 @@ def main() -> None:
         config.http_limite_global_por_minuto,
     )
     logger.info(
-        "protocolos-pcdt-mcp em http://%s:%d%s (stateless=%s, limite %d/min por origem e "
+        "galeno-mcp em http://%s:%d%s (stateless=%s, limite %d/min por origem e "
         "%d/min global, base=%s)",
         config.http_host,
         config.http_porta,

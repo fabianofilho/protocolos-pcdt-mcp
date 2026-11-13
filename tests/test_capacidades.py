@@ -7,7 +7,7 @@ def test_nao_anuncia_prompts_nem_resources_sem_ter_nenhum() -> None:
     """Handshake prometendo lista vazia custa chamada e sugere recurso inexistente."""
     from mcp.server.mcpserver import MCPServer
 
-    from protocolos_pcdt_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
+    from galeno_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
 
     servidor = MCPServer("teste", version="0.1")
 
@@ -28,7 +28,7 @@ def test_recurso_cadastrado_continua_anunciado() -> None:
     """A supressão não pode esconder o que de fato existe."""
     from mcp.server.mcpserver import MCPServer
 
-    from protocolos_pcdt_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
+    from galeno_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
 
     servidor = MCPServer("teste", version="0.1")
 
@@ -46,7 +46,7 @@ def test_recurso_cadastrado_continua_anunciado() -> None:
 
 def test_sdk_diferente_nao_derruba_o_servidor() -> None:
     """Isto mexe em estrutura interna do SDK: mudança lá não pode virar exceção aqui."""
-    from protocolos_pcdt_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
+    from galeno_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
 
     class Estranho:
         pass
