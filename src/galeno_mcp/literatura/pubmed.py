@@ -34,6 +34,13 @@ class PubMedIndisponivel(RuntimeError):
     """A API não respondeu como esperado."""
 
 
+# Compartilhados entre instâncias: o limite é da NCBI por IP, não por chamada.
+# Um limitador por instância deixaria cada chamada concorrente (modo connector)
+# se achar a primeira, e a dbf levaria o 429 da NCBI por todo mundo.
+_LIMITADOR_SEM_CHAVE = LimitadorTaxa(3.0)
+_LIMITADOR_COM_CHAVE = LimitadorTaxa(10.0)
+
+
 def _texto(elemento: ElementTree.Element | None) -> str | None:
     if elemento is None:
         return None
@@ -118,7 +125,7 @@ class PubMed:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._api_key = api_key or None
-        self._limitador = LimitadorTaxa(10.0 if self._api_key else 3.0)
+        self._limitador = _LIMITADOR_COM_CHAVE if self._api_key else _LIMITADOR_SEM_CHAVE
         self._client = client
         self._client_proprio = client is None
 

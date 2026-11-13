@@ -185,7 +185,7 @@ ordem de relevância que o próprio PubMed calcula (`sort=relevance`), não por 
 `tipo_estudo` é a lista de tipos de publicação do PubMed (ex. `"Randomized Controlled
 Trial"`, `"Review"`, `"Meta-Analysis"`); `"Journal Article"` só aparece quando é o único
 tipo registrado, porque sozinho não diz nada sobre o desenho do estudo. Saída real,
-abreviada por tamanho (14/11/2026):
+abreviada por tamanho (13/11/2026):
 
 ```json
 {

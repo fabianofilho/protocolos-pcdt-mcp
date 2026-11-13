@@ -91,8 +91,8 @@ async def buscar_literatura(
     aparece quando é o único tipo registrado, porque sozinho não diz nada
     sobre o desenho do estudo.
 
-    Sem resumo nem texto completo: para o texto completo, veja a tool
-    texto_completo (ainda não implementada nesta versão).
+    Traz o resumo (abstract) quando o PubMed tem um, mas não o texto completo
+    do artigo.
 
     Args:
         termo: termo de busca, nos mesmos moldes de uma busca no PubMed

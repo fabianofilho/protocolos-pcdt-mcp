@@ -178,6 +178,22 @@ def test_pubmed_fora_do_async_with_levanta() -> None:
         pubmed._exigir_client()
 
 
+def test_pubmed_instancias_sem_chave_compartilham_o_limitador() -> None:
+    """O limite é da NCBI por IP, não por instância: duas instâncias concorrentes
+    (modo connector) têm que esperar a mesma fila, não uma fila cada."""
+    a = PubMed()
+    b = PubMed()
+    assert a._limitador is b._limitador
+
+
+def test_pubmed_instancias_com_chave_tem_limitador_proprio_e_mais_rapido() -> None:
+    a = PubMed(api_key="x")
+    b = PubMed(api_key="y")
+    sem_chave = PubMed()
+    assert a._limitador is b._limitador
+    assert a._limitador is not sem_chave._limitador
+
+
 # --- a tool buscar_literatura ---------------------------------------------------
 
 
