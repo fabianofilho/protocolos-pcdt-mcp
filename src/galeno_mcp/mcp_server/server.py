@@ -30,7 +30,7 @@ ICONE = [
     Icon(
         src="data:image/svg+xml;base64,"
         + base64.b64encode((Path(__file__).parent / "icone.svg").read_bytes()).decode(),
-        mimeType="image/svg+xml",
+        mime_type="image/svg+xml",
         sizes=["any"],
     )
 ]
