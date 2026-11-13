@@ -96,7 +96,7 @@ claude mcp add galeno --scope user \
 
 ## Uso
 
-### `consultar_protocolo(doenca_ou_condicao: str, limite=10)`
+### `buscar_pcdt(doenca_ou_condicao: str, limite=10)`
 
 `limite` vai de 1 a 100 e vale para a busca pelo nome; acima disso a chamada é recusada.
 
@@ -151,7 +151,7 @@ aprovado; a listagem da Conitec só traz PCDTs vigentes.
 ### `resumir_conduta(pcdt_id: str, contexto_clinico: str)`
 
 Extrai do protocolo a parte que responde ao contexto, em vez de devolver o documento
-inteiro. Aceita o `identificador` de `consultar_protocolo` ou o nome da condição sem a nota
+inteiro. Aceita o `identificador` de `buscar_pcdt` ou o nome da condição sem a nota
 de revisão (por exemplo, `asma`). Precisa do LLM local e do texto completo já coletado;
 sem um dos dois, devolve só o link do PDF e um aviso dizendo o que faltou. No modo
 connector o LLM nunca é chamado e a resposta vem sempre com `resumo: null` (ver
@@ -170,6 +170,46 @@ connector o LLM nunca é chamado e a resposta vem sempre com `resumo: null` (ver
   "url_pdf": "https://www.gov.br/conitec/..."
 }
 ```
+
+### `buscar_literatura(termo: str, limite=10)`
+
+Busca sob demanda no PubMed (E-utilities) os artigos mais relevantes para um termo, na
+hora da chamada; não há base local nem cache. `limite` vai de 1 a 100. Hoje só consulta o
+PubMed; Europe PMC fica para uma próxima versão desta tool, e por isso não há garantia de
+cobertura de literatura não indexada lá (por exemplo, boa parte da produção brasileira).
+
+A busca aceita a sintaxe normal do PubMed (termos em inglês funcionam melhor; MeSH e
+operadores como `AND`/`OR` e aspas para frase exata são aceitos). Os resultados vêm na
+ordem de relevância que o próprio PubMed calcula (`sort=relevance`), não por data.
+
+`tipo_estudo` é a lista de tipos de publicação do PubMed (ex. `"Randomized Controlled
+Trial"`, `"Review"`, `"Meta-Analysis"`); `"Journal Article"` só aparece quando é o único
+tipo registrado, porque sozinho não diz nada sobre o desenho do estudo. Saída real,
+abreviada por tamanho (14/11/2026):
+
+```json
+{
+  "termo": "metformin type 2 diabetes randomized controlled trial",
+  "retornados": 1,
+  "resultados": [
+    {
+      "pmid": "35965421",
+      "doi": "10.1024/0300-9831/a000760",
+      "fonte": "pubmed",
+      "titulo": "Anti-hyperglycemic effects of propolis or metformin in type 2 diabetes mellitus.",
+      "resumo": "Background: The aim of this study was to evaluate the effect of propolis or metformin versus placebo on glycemic control... (resumo completo na resposta real)",
+      "ano": 2023,
+      "tipo_estudo": ["Randomized Controlled Trial"],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/35965421/"
+    }
+  ],
+  "aviso": null
+}
+```
+
+Sem chave da NCBI, o limite é de 3 requisições por segundo (10 com `PUBMED_API_KEY` no
+`.env`); para uma busca por vez isso nunca é alcançado. Falha de rede ou resposta
+inesperada do PubMed vira `aviso`, nunca uma exceção.
 
 ## A citação é conferida, não só pedida
 
@@ -220,8 +260,8 @@ O servidor HTTP não chama o LLM. Resumir sob demanda faria quem hospeda pagar i
 para qualquer pessoa que chame o connector. Não existe cache de resumos neste projeto
 (cada resumo depende do contexto clínico perguntado), então, nesse modo, a tool devolve
 o identificador, a condição, o link do PDF, `resumo: null` e um aviso dizendo que nenhum
-resumo foi gerado. Nada é inventado no lugar. `consultar_protocolo` funciona igual nos
-dois modos.
+resumo foi gerado. Nada é inventado no lugar. `buscar_pcdt` e `buscar_literatura` funcionam
+igual nos dois modos.
 
 ### Atrás de um proxy ou túnel, declare o nome público
 
@@ -303,7 +343,7 @@ conseguir baixar o PDF novo, em vez de resumir a versão velha com o link da nov
 só a nota ou a portaria mudam e a URL continua a mesma, o PDF velho sai do cache em disco
 na hora, para não ser reextraído depois.
 
-**O status é parcial.** Ver a seção de `consultar_protocolo`.
+**O status é parcial.** Ver a seção de `buscar_pcdt`.
 
 **A busca no texto é um último recurso.** Ela acha protocolos que citam o termo, não o
 PCDT da condição. Siglas fora da lista de `nomes.py` também caem nela.

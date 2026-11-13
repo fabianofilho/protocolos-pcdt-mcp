@@ -15,6 +15,8 @@ from pydantic import Field
 from galeno_mcp.config import carregar_config
 from galeno_mcp.mcp_server.capacidades import esconder_o_que_nao_existe
 from galeno_mcp.mcp_server.limite import LimitadorPorOrigem, origem_da_requisicao
+from galeno_mcp.mcp_server.tools.literatura import RespostaLiteratura
+from galeno_mcp.mcp_server.tools.literatura import buscar_literatura as _buscar_literatura
 from galeno_mcp.mcp_server.tools.pcdt import RespostaConsulta, RespostaResumo
 from galeno_mcp.mcp_server.tools.pcdt import buscar_pcdt as _buscar_pcdt
 from galeno_mcp.mcp_server.tools.pcdt import resumir_conduta as _resumir_conduta
@@ -25,12 +27,12 @@ logger = logging.getLogger(__name__)
 # com prancheta com check no visor. Em data URI, e não URL: o cliente precisa ver o
 # ícone antes de autenticar, e o endereço do Funnel é um só para todos os servidores.
 ICONE = [
-Icon(
-    src="data:image/svg+xml;base64,"
-    + base64.b64encode((Path(__file__).parent / "icone.svg").read_bytes()).decode(),
-    mimeType="image/svg+xml",
-    sizes=["any"],
-)
+    Icon(
+        src="data:image/svg+xml;base64,"
+        + base64.b64encode((Path(__file__).parent / "icone.svg").read_bytes()).decode(),
+        mimeType="image/svg+xml",
+        sizes=["any"],
+    )
 ]
 
 mcp = MCPServer("galeno-mcp", version="0.1.0", icons=ICONE)
@@ -69,9 +71,36 @@ async def buscar_pcdt(
         limite: quantos protocolos trazer pelo nome, de 1 a 100.
     """
     config = carregar_config()
-    return await _buscar_pcdt(
-        doenca_ou_condicao, caminho_db=str(config.duckdb_path), limite=limite
-    )
+    return await _buscar_pcdt(doenca_ou_condicao, caminho_db=str(config.duckdb_path), limite=limite)
+
+
+@mcp.tool(icons=ICONE)
+async def buscar_literatura(
+    termo: str,
+    limite: Annotated[int, Field(ge=1, le=LIMITE_MAXIMO)] = 10,
+) -> RespostaLiteratura:
+    """Busca sob demanda no PubMed os artigos mais relevantes para um termo.
+
+    Hoje só consulta o PubMed (E-utilities); Europe PMC fica para uma próxima
+    versão desta tool. Os resultados vêm na ordem de relevância que o próprio
+    PubMed calcula, não por data de publicação.
+
+    Cada resultado traz PMID, DOI (quando existe), título, resumo (abstract,
+    quando o PubMed tem um), ano e o(s) tipo(s) de estudo (ex. "Randomized
+    Controlled Trial", "Review", "Meta-Analysis"); "Journal Article" só
+    aparece quando é o único tipo registrado, porque sozinho não diz nada
+    sobre o desenho do estudo.
+
+    Sem resumo nem texto completo: para o texto completo, veja a tool
+    texto_completo (ainda não implementada nesta versão).
+
+    Args:
+        termo: termo de busca, nos mesmos moldes de uma busca no PubMed
+            (aceita operadores como AND/OR e aspas para frase exata).
+        limite: quantos artigos trazer, de 1 a 100.
+    """
+    config = carregar_config()
+    return await _buscar_literatura(termo, limite=limite, api_key=config.pubmed_api_key)
 
 
 @mcp.tool(icons=ICONE)
@@ -219,7 +248,11 @@ def main() -> None:
     # Parada: sem este prazo o uvicorn espera as conexões SSE do claude.ai fecharem e o
     # serviço só saía no SIGKILL do systemd (90 s padrão, 15 s desde 25/10/2026).
     # Cinco segundos bastam para terminar a requisição em curso.
-    uvicorn.run(app, host=config.http_host, port=config.http_porta, log_level="warning",
+    uvicorn.run(
+        app,
+        host=config.http_host,
+        port=config.http_porta,
+        log_level="warning",
         timeout_graceful_shutdown=5,
     )
 
