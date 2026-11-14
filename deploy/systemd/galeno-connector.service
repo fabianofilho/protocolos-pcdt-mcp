@@ -1,4 +1,4 @@
-# Servidor MCP dos PCDTs em HTTP, para hospedar como connector.
+# Servidor MCP do Galeno (contexto clinico) em HTTP, para hospedar como connector.
 #
 # Escuta so no loopback de proposito. Quem publica para fora e a camada da
 # frente (proxy reverso com TLS, ou Tailscale Funnel), que aponta para esta
@@ -6,24 +6,24 @@
 # variavel de ambiente.
 #
 # Instalar como servico de usuario:
-#   cp deploy/systemd/protocolos-pcdt-connector.service ~/.config/systemd/user/
+#   cp deploy/systemd/galeno-connector.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
-#   systemctl --user enable --now protocolos-pcdt-connector
+#   systemctl --user enable --now galeno-connector
 #
 # Neste modo o servidor nao chama o LLM: resumir_conduta devolve o link do PDF
-# e um aviso de que nao ha resumo. A coleta NAO roda aqui: ela e
-# protocolos-pcdt-sync.service (disparada por protocolos-pcdt-sync.timer), que
-# hoje grava direto na base servida. Enquanto ela roda, as consultas recebem o
-# aviso de base travada. Este processo so le.
+# e um aviso de que nao ha resumo. A coleta dos PCDTs NAO roda aqui: ela e
+# galeno-sync.service (disparada por galeno-sync.timer), que hoje grava direto
+# na base servida. Enquanto ela roda, as consultas recebem o aviso de base
+# travada. Este processo so le.
 
 [Unit]
-Description=Servidor MCP dos PCDTs em HTTP (modo connector)
-Documentation=https://github.com/fabianofilho/protocolos-pcdt-mcp
+Description=Servidor MCP do Galeno em HTTP (modo connector)
+Documentation=https://github.com/fabianofilho/galeno-mcp
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/protocolos-pcdt-mcp
+WorkingDirectory=%h/galeno-mcp
 Environment=TRANSPORTE=streamable-http
 Environment=HTTP_HOST=127.0.0.1
 Environment=HTTP_PORTA=8104
@@ -35,7 +35,7 @@ Environment=HTTP_STATELESS=true
 # Host publico desde 25/10/2026: mcp.iamed.cc (Traefik da VPS, pela tailnet). O nome
 # debian-f.tailf42a96.ts.net segue valido dentro da tailnet (tailscale serve); o Funnel acabou.
 Environment=HTTP_HOSTS_PUBLICOS=debian-f.tailf42a96.ts.net,mcp.iamed.cc
-ExecStart=%h/.local/bin/uv --directory %h/protocolos-pcdt-mcp run protocolos-pcdt-mcp
+ExecStart=%h/.local/bin/uv --directory %h/galeno-mcp run galeno-mcp
 
 # O uvicorn espera as conexoes abertas (SSE do claude.ai) e so saia no SIGKILL dos 90 s
 # padrao (medido em 25/10/2026). Servidor sem estado: 15 s bastam para um restart.
@@ -43,7 +43,7 @@ TimeoutStopSec=15
 Restart=always
 RestartSec=5
 ProtectSystem=strict
-ReadWritePaths=%h/protocolos-pcdt-mcp/data
+ReadWritePaths=%h/galeno-mcp/data
 PrivateTmp=true
 NoNewPrivileges=true
 

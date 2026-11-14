@@ -15,7 +15,7 @@ from importlib.resources import files
 from jinja2 import Environment, Template, select_autoescape
 from pydantic import BaseModel, Field
 
-from protocolos_pcdt_mcp.llm.qwen_client import QwenClient
+from galeno_mcp.llm.qwen_client import QwenClient
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class ResumoConduta(BaseModel):
 @lru_cache(maxsize=1)
 def _template() -> Template:
     """O prompt mora dentro do pacote, para ir junto no wheel."""
-    fonte = files("protocolos_pcdt_mcp").joinpath("prompts", NOME_TEMPLATE).read_text("utf-8")
+    fonte = files("galeno_mcp").joinpath("prompts", NOME_TEMPLATE).read_text("utf-8")
     ambiente = Environment(autoescape=select_autoescape(default=False, default_for_string=False))
     return ambiente.from_string(fonte)
 

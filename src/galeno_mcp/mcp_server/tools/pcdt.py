@@ -9,10 +9,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from protocolos_pcdt_mcp.llm.qwen_client import QwenClient, QwenIndisponivel
-from protocolos_pcdt_mcp.llm.resumir import ResumoConduta, resumir
-from protocolos_pcdt_mcp.store.db import BaseIndisponivel, conectar
-from protocolos_pcdt_mcp.store.queries import (
+from galeno_mcp.llm.qwen_client import QwenClient, QwenIndisponivel
+from galeno_mcp.llm.resumir import ResumoConduta, resumir
+from galeno_mcp.store.db import BaseIndisponivel, conectar
+from galeno_mcp.store.queries import (
     buscar_condicao,
     buscar_no_texto,
     contar_condicao,
@@ -143,7 +143,7 @@ def _ler(caminho_db: str, funcao: Any) -> tuple[Any, str | None]:
         return None, AVISO_BASE_TRAVADA
 
 
-async def consultar_protocolo(
+async def buscar_pcdt(
     doenca_ou_condicao: str,
     *,
     caminho_db: str,
@@ -225,7 +225,7 @@ async def resumir_conduta(
             contexto_clinico=contexto_clinico,
             aviso=(
                 f"Nenhum protocolo com identificador {pcdt_id!r}. "
-                "Use consultar_protocolo para achar o identificador correto."
+                "Use buscar_pcdt para achar o identificador correto."
             ),
         )
 

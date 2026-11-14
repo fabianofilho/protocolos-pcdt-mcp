@@ -10,7 +10,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from protocolos_pcdt_mcp.store.db import aplicar_schema
+from galeno_mcp.store.db import aplicar_schema
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -46,3 +46,11 @@ def db(tmp_path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
 @pytest.fixture
 def caminho_db(tmp_path: Path) -> str:
     return str(tmp_path / "tools.duckdb")
+
+
+@pytest.fixture
+def xml_efetch_literatura() -> str:
+    """XML sintético de efetch, com 3 artigos cobrindo os casos de parsing:
+    tipo genérico sozinho, tipo específico junto do genérico, e MedlineDate
+    sem Year e sem resumo nem DOI."""
+    return (FIXTURES / "efetch_pubmed_literatura.xml").read_text(encoding="utf-8")

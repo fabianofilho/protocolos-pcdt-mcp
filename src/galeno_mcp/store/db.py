@@ -9,7 +9,7 @@ from pathlib import Path
 
 import duckdb
 
-from protocolos_pcdt_mcp.nomes import identificador_de, separar_nota
+from galeno_mcp.nomes import identificador_de, separar_nota
 
 logger = logging.getLogger(__name__)
 

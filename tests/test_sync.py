@@ -10,9 +10,9 @@ import httpx
 import pytest
 import respx
 
-from protocolos_pcdt_mcp.coleta import sync
-from protocolos_pcdt_mcp.coleta.listagem import URL_LISTAGEM, URL_STATUS_CSV
-from protocolos_pcdt_mcp.extract.parser import ProtocoloExtraido
+from galeno_mcp.coleta import sync
+from galeno_mcp.coleta.listagem import URL_LISTAGEM, URL_STATUS_CSV
+from galeno_mcp.extract.parser import ProtocoloExtraido
 
 GOVBR = "https://www.gov.br/conitec/"
 

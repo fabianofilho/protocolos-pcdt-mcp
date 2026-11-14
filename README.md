@@ -1,8 +1,11 @@
-# protocolos-pcdt-mcp
+# galeno-mcp
 
-Servidor MCP local (stdio) que consulta os PCDTs (Protocolos Clínicos e Diretrizes
-Terapêuticas) do Ministério da Saúde/Conitec e resume a conduta recomendada para um
-contexto clínico específico, usando um LLM local. Toda resposta traz o link do PDF oficial.
+Servidor MCP de contexto clínico. O nome é de Galeno, médico e escritor da Antiguidade que
+sistematizou o conhecimento clínico do seu tempo.
+
+Hoje consulta os PCDTs (Protocolos Clínicos e Diretrizes Terapêuticas) do Ministério da
+Saúde/Conitec e resume a conduta recomendada para um contexto clínico específico, usando
+um LLM local. Toda resposta traz o link do PDF oficial.
 
 Por padrão o servidor roda por stdio, na sua máquina, sem porta de rede. Há também um
 [modo connector](#modo-connector-servidor-http) (HTTP), em que ele só consulta: não chama
@@ -32,8 +35,8 @@ o LLM e, portanto, não gera resumos.
 ## Instalação
 
 ```bash
-git clone https://github.com/fabianofilho/protocolos-pcdt-mcp.git
-cd protocolos-pcdt-mcp
+git clone https://github.com/fabianofilho/galeno-mcp.git
+cd galeno-mcp
 uv sync
 cp .env.example .env
 ```
@@ -66,17 +69,17 @@ timer systemd de usuário versionado em [`deploy/systemd/`](deploy/systemd/): el
 `pcdt-cli sync --publicar` todo dia às 02:40, com até 30 min de atraso aleatório, e recupera
 o disparo perdido se a máquina estava desligada.
 
-As units supõem o clone em `~/protocolos-pcdt-mcp` e o `uv` em `~/.local/bin/uv`. Se os
+As units supõem o clone em `~/galeno-mcp` e o `uv` em `~/.local/bin/uv`. Se os
 seus caminhos forem outros, edite `WorkingDirectory` e `ExecStart` antes de copiar.
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp deploy/systemd/protocolos-pcdt-sync.service deploy/systemd/protocolos-pcdt-sync.timer \
+cp deploy/systemd/galeno-sync.service deploy/systemd/galeno-sync.timer \
   ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now protocolos-pcdt-sync.timer
-systemctl --user list-timers protocolos-pcdt-sync.timer   # próximo disparo
-journalctl --user -u protocolos-pcdt-sync.service         # saída dos syncs
+systemctl --user enable --now galeno-sync.timer
+systemctl --user list-timers galeno-sync.timer   # próximo disparo
+journalctl --user -u galeno-sync.service         # saída dos syncs
 ```
 
 Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
@@ -84,16 +87,16 @@ Para o timer rodar sem sessão aberta, habilite `loginctl enable-linger $USER`.
 ### Ligando ao Claude Code
 
 ```bash
-claude mcp add protocolos-pcdt --scope user \
-  -e DUCKDB_PATH=/caminho/para/protocolos-pcdt-mcp/data/pcdt.duckdb \
+claude mcp add galeno --scope user \
+  -e DUCKDB_PATH=/caminho/para/galeno-mcp/data/pcdt.duckdb \
   -e QWEN_ENDPOINT=http://127.0.0.1:8080/v1 \
   -e QWEN_MODEL=local-model \
-  -- uv --directory /caminho/para/protocolos-pcdt-mcp run protocolos-pcdt-mcp
+  -- uv --directory /caminho/para/galeno-mcp run galeno-mcp
 ```
 
 ## Uso
 
-### `consultar_protocolo(doenca_ou_condicao: str, limite=10)`
+### `buscar_pcdt(doenca_ou_condicao: str, limite=10)`
 
 `limite` vai de 1 a 100 e vale para a busca pelo nome; acima disso a chamada é recusada.
 
@@ -148,7 +151,7 @@ aprovado; a listagem da Conitec só traz PCDTs vigentes.
 ### `resumir_conduta(pcdt_id: str, contexto_clinico: str)`
 
 Extrai do protocolo a parte que responde ao contexto, em vez de devolver o documento
-inteiro. Aceita o `identificador` de `consultar_protocolo` ou o nome da condição sem a nota
+inteiro. Aceita o `identificador` de `buscar_pcdt` ou o nome da condição sem a nota
 de revisão (por exemplo, `asma`). Precisa do LLM local e do texto completo já coletado;
 sem um dos dois, devolve só o link do PDF e um aviso dizendo o que faltou. No modo
 connector o LLM nunca é chamado e a resposta vem sempre com `resumo: null` (ver
@@ -167,6 +170,46 @@ connector o LLM nunca é chamado e a resposta vem sempre com `resumo: null` (ver
   "url_pdf": "https://www.gov.br/conitec/..."
 }
 ```
+
+### `buscar_literatura(termo: str, limite=10)`
+
+Busca sob demanda no PubMed (E-utilities) os artigos mais relevantes para um termo, na
+hora da chamada; não há base local nem cache. `limite` vai de 1 a 100. Hoje só consulta o
+PubMed; Europe PMC fica para uma próxima versão desta tool, e por isso não há garantia de
+cobertura de literatura não indexada lá (por exemplo, boa parte da produção brasileira).
+
+A busca aceita a sintaxe normal do PubMed (termos em inglês funcionam melhor; MeSH e
+operadores como `AND`/`OR` e aspas para frase exata são aceitos). Os resultados vêm na
+ordem de relevância que o próprio PubMed calcula (`sort=relevance`), não por data.
+
+`tipo_estudo` é a lista de tipos de publicação do PubMed (ex. `"Randomized Controlled
+Trial"`, `"Review"`, `"Meta-Analysis"`); `"Journal Article"` só aparece quando é o único
+tipo registrado, porque sozinho não diz nada sobre o desenho do estudo. Saída real,
+abreviada por tamanho (13/11/2026):
+
+```json
+{
+  "termo": "metformin type 2 diabetes randomized controlled trial",
+  "retornados": 1,
+  "resultados": [
+    {
+      "pmid": "35965421",
+      "doi": "10.1024/0300-9831/a000760",
+      "fonte": "pubmed",
+      "titulo": "Anti-hyperglycemic effects of propolis or metformin in type 2 diabetes mellitus.",
+      "resumo": "Background: The aim of this study was to evaluate the effect of propolis or metformin versus placebo on glycemic control... (resumo completo na resposta real)",
+      "ano": 2023,
+      "tipo_estudo": ["Randomized Controlled Trial"],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/35965421/"
+    }
+  ],
+  "aviso": null
+}
+```
+
+Sem chave da NCBI, o limite é de 3 requisições por segundo (10 com `PUBMED_API_KEY` no
+`.env`); para uma busca por vez isso nunca é alcançado. Falha de rede ou resposta
+inesperada do PubMed vira `aviso`, nunca uma exceção.
 
 ## A citação é conferida, não só pedida
 
@@ -192,7 +235,7 @@ Com `TRANSPORTE=streamable-http`, ele vira um servidor alcançável pela rede, q
 o Claude aceita como custom connector.
 
 ```bash
-TRANSPORTE=streamable-http HTTP_PORTA=8000 uv run protocolos-pcdt-mcp
+TRANSPORTE=streamable-http HTTP_PORTA=8000 uv run galeno-mcp
 ```
 
 | Variável | Padrão | Observação |
@@ -217,8 +260,8 @@ O servidor HTTP não chama o LLM. Resumir sob demanda faria quem hospeda pagar i
 para qualquer pessoa que chame o connector. Não existe cache de resumos neste projeto
 (cada resumo depende do contexto clínico perguntado), então, nesse modo, a tool devolve
 o identificador, a condição, o link do PDF, `resumo: null` e um aviso dizendo que nenhum
-resumo foi gerado. Nada é inventado no lugar. `consultar_protocolo` funciona igual nos
-dois modos.
+resumo foi gerado. Nada é inventado no lugar. `buscar_pcdt` e `buscar_literatura` funcionam
+igual nos dois modos.
 
 ### Atrás de um proxy ou túnel, declare o nome público
 
@@ -236,15 +279,15 @@ máquina.
 
 ### Rodar como serviço
 
-[`deploy/systemd/protocolos-pcdt-connector.service`](deploy/systemd/protocolos-pcdt-connector.service)
+[`deploy/systemd/galeno-connector.service`](deploy/systemd/galeno-connector.service)
 é a unit de usuário do servidor HTTP. Ela escuta só em `127.0.0.1:8104`; expor para fora é
 uma camada à parte (proxy reverso com TLS ou túnel) que aponta para essa porta. Ajuste
 `HTTP_HOSTS_PUBLICOS` para o seu nome público antes de habilitar.
 
 ```bash
-cp deploy/systemd/protocolos-pcdt-connector.service ~/.config/systemd/user/
+cp deploy/systemd/galeno-connector.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now protocolos-pcdt-connector.service
+systemctl --user enable --now galeno-connector.service
 ```
 
 ### O sync não interrompe quem está lendo
@@ -300,7 +343,7 @@ conseguir baixar o PDF novo, em vez de resumir a versão velha com o link da nov
 só a nota ou a portaria mudam e a URL continua a mesma, o PDF velho sai do cache em disco
 na hora, para não ser reextraído depois.
 
-**O status é parcial.** Ver a seção de `consultar_protocolo`.
+**O status é parcial.** Ver a seção de `buscar_pcdt`.
 
 **A busca no texto é um último recurso.** Ela acha protocolos que citam o termo, não o
 PCDT da condição. Siglas fora da lista de `nomes.py` também caem nela.

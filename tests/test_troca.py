@@ -15,8 +15,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from protocolos_pcdt_mcp.store.db import aplicar_schema
-from protocolos_pcdt_mcp.store.troca import (
+from galeno_mcp.store.db import aplicar_schema
+from galeno_mcp.store.troca import (
     BaseSuspeita,
     caminho_em_construcao,
     clonar_para_construcao,

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import duckdb
 
-from protocolos_pcdt_mcp.store.db import aplicar_schema, conectar, reindexar_fts
-from protocolos_pcdt_mcp.store.queries import buscar_no_texto, por_identificador
+from galeno_mcp.store.db import aplicar_schema, conectar, reindexar_fts
+from galeno_mcp.store.queries import buscar_no_texto, por_identificador
 
 ANTIGO = "asma (anexo alterado em 04/09/2026)"
 
@@ -117,11 +117,11 @@ def test_por_identificador_aceita_id_sem_nota(db: duckdb.DuckDBPyConnection) -> 
 
 async def test_servidor_le_base_v1_sem_migrar(tmp_path: Path) -> None:
     """O servidor abre em read_only: a base v1 não tem nota_atualizacao até o próximo sync."""
-    from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo, resumir_conduta
+    from galeno_mcp.mcp_server.tools.pcdt import buscar_pcdt, resumir_conduta
 
     caminho = tmp_path / "v1.duckdb"
     _base_v1(caminho)
-    consulta = await consultar_protocolo("asma", caminho_db=str(caminho))
+    consulta = await buscar_pcdt("asma", caminho_db=str(caminho))
     assert consulta.total == 1 and consulta.aviso is None
     assert consulta.resultados[0].identificador == ANTIGO
     assert consulta.resultados[0].nota_atualizacao is None

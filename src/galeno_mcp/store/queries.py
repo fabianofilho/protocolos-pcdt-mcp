@@ -8,7 +8,7 @@ from typing import Any
 
 import duckdb
 
-from protocolos_pcdt_mcp.nomes import chave_nome, termos_de_busca
+from galeno_mcp.nomes import chave_nome, termos_de_busca
 
 logger = logging.getLogger(__name__)
 

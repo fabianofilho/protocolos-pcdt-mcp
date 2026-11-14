@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from protocolos_pcdt_mcp.coleta.listagem import USER_AGENT
+from galeno_mcp.coleta.listagem import USER_AGENT
 
 logger = logging.getLogger(__name__)
 

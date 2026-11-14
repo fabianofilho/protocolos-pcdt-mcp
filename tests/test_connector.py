@@ -12,15 +12,15 @@ from typing import Any
 import duckdb
 import pytest
 
-from protocolos_pcdt_mcp.mcp_server.limite import LimitadorPorOrigem, origem_da_requisicao
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import (
+from galeno_mcp.mcp_server.limite import LimitadorPorOrigem, origem_da_requisicao
+from galeno_mcp.mcp_server.tools.pcdt import (
     AVISO_BASE_TRAVADA,
     AVISO_SEM_LLM_NO_CONNECTOR,
-    consultar_protocolo,
+    buscar_pcdt,
     resumir_conduta,
 )
-from protocolos_pcdt_mcp.store.db import conectar
-from protocolos_pcdt_mcp.store.queries import gravar
+from galeno_mcp.store.db import conectar
+from galeno_mcp.store.queries import gravar
 
 TEXTO = "3 TRATAMENTO. Primeira linha: fármaco A, 500 mg, duas vezes ao dia, por 30 dias."
 
@@ -79,7 +79,7 @@ def test_origem_ignora_forwarded_for_de_quem_nao_e_proxy() -> None:
 
 
 def test_tabela_cheia_recusa(monkeypatch: pytest.MonkeyPatch) -> None:
-    from protocolos_pcdt_mcp.mcp_server import limite
+    from galeno_mcp.mcp_server import limite
 
     monkeypatch.setattr(limite, "MAX_ORIGENS", 2)
     limitador = LimitadorPorOrigem(100)
@@ -118,7 +118,7 @@ def test_sem_teto_global_so_vale_o_por_origem() -> None:
 
 async def test_middleware_responde_429_acima_do_teto() -> None:
     """O teto vale na borda HTTP, antes de a requisição chegar ao MCP."""
-    from protocolos_pcdt_mcp.mcp_server.server import _com_limite
+    from galeno_mcp.mcp_server.server import _com_limite
 
     chamadas: list[str] = []
 
@@ -147,7 +147,7 @@ async def test_middleware_responde_429_acima_do_teto() -> None:
 
 def test_padrao_continua_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
     """Quem usa hoje por stdio não pode mudar de comportamento sem pedir."""
-    from protocolos_pcdt_mcp.config import Config
+    from galeno_mcp.config import Config
 
     monkeypatch.delenv("TRANSPORTE", raising=False)
     config = Config(_env_file=None)  # type: ignore[call-arg]
@@ -161,7 +161,7 @@ def test_padrao_continua_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_streamable_http_liga_o_modo_connector(monkeypatch: pytest.MonkeyPatch) -> None:
-    from protocolos_pcdt_mcp.config import Config
+    from galeno_mcp.config import Config
 
     monkeypatch.setenv("TRANSPORTE", "streamable-http")
     assert Config(_env_file=None).modo_connector is True  # type: ignore[call-arg]
@@ -169,7 +169,7 @@ def test_streamable_http_liga_o_modo_connector(monkeypatch: pytest.MonkeyPatch) 
 
 def test_hosts_publicos_aceita_lista_por_virgula(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sem NoDecode o pydantic-settings tentaria ler o valor como JSON e estouraria."""
-    from protocolos_pcdt_mcp.config import Config
+    from galeno_mcp.config import Config
 
     monkeypatch.setenv("HTTP_HOSTS_PUBLICOS", "a.exemplo.ts.net, b.exemplo.ts.net")
     config = Config(_env_file=None)  # type: ignore[call-arg]
@@ -181,16 +181,16 @@ def test_hosts_publicos_aceita_lista_por_virgula(monkeypatch: pytest.MonkeyPatch
 
 def test_sem_host_publico_mantem_o_padrao_do_sdk() -> None:
     """Sem nome público declarado, quem decide é o SDK: só loopback."""
-    from protocolos_pcdt_mcp.config import Config
-    from protocolos_pcdt_mcp.mcp_server.server import _seguranca_de_transporte
+    from galeno_mcp.config import Config
+    from galeno_mcp.mcp_server.server import _seguranca_de_transporte
 
     assert _seguranca_de_transporte(Config(http_hosts_publicos=[])) is None
 
 
 def test_host_publico_entra_sem_derrubar_o_loopback() -> None:
     """Declarar o nome do túnel não pode cortar o acesso local, que é como se testa."""
-    from protocolos_pcdt_mcp.config import Config
-    from protocolos_pcdt_mcp.mcp_server.server import _seguranca_de_transporte
+    from galeno_mcp.config import Config
+    from galeno_mcp.mcp_server.server import _seguranca_de_transporte
 
     regras = _seguranca_de_transporte(Config(http_hosts_publicos=["mcp.exemplo.ts.net"]))
     assert regras is not None
@@ -204,8 +204,8 @@ def test_host_de_fora_da_lista_continua_recusado() -> None:
     """A proteção contra DNS rebinding continua valendo para quem não foi declarado."""
     from mcp.server.transport_security import TransportSecurityMiddleware
 
-    from protocolos_pcdt_mcp.config import Config
-    from protocolos_pcdt_mcp.mcp_server.server import _seguranca_de_transporte
+    from galeno_mcp.config import Config
+    from galeno_mcp.mcp_server.server import _seguranca_de_transporte
 
     guarda = TransportSecurityMiddleware(
         _seguranca_de_transporte(Config(http_hosts_publicos=["mcp.exemplo.ts.net"]))
@@ -223,14 +223,14 @@ async def test_consulta_tem_teto_de_limite_no_connector() -> None:
     """No connector público, 'limite' sem teto devolveria a base inteira."""
     from mcp.server.mcpserver.exceptions import ToolError
 
-    from protocolos_pcdt_mcp.mcp_server.server import LIMITE_MAXIMO, mcp
+    from galeno_mcp.mcp_server.server import LIMITE_MAXIMO, mcp
 
     ferramentas = {t.name: t for t in await mcp.list_tools()}
-    schema = ferramentas["consultar_protocolo"].input_schema["properties"]["limite"]
+    schema = ferramentas["buscar_pcdt"].input_schema["properties"]["limite"]
     assert (schema["minimum"], schema["maximum"]) == (1, LIMITE_MAXIMO)
     with pytest.raises(ToolError):
         await mcp.call_tool(
-            "consultar_protocolo", {"doenca_ou_condicao": "asma", "limite": LIMITE_MAXIMO + 1}
+            "buscar_pcdt", {"doenca_ou_condicao": "asma", "limite": LIMITE_MAXIMO + 1}
         )
 
 
@@ -241,7 +241,7 @@ async def test_resumo_no_connector_nao_chama_o_llm(
     caminho_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Sem cache de resumos, a resposta diz que não há resumo, e não inventa um."""
-    from protocolos_pcdt_mcp.mcp_server.tools import pcdt
+    from galeno_mcp.mcp_server.tools import pcdt
 
     with conectar(caminho_db) as conexao:
         gravar(conexao, [_registro()])
@@ -269,8 +269,8 @@ async def test_tool_do_servidor_segue_o_transporte(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A tool registrada lê TRANSPORTE: em streamable-http o LLM fica desligado."""
-    from protocolos_pcdt_mcp.mcp_server import server
-    from protocolos_pcdt_mcp.mcp_server.tools import pcdt
+    from galeno_mcp.mcp_server import server
+    from galeno_mcp.mcp_server.tools import pcdt
 
     caminho = tmp_path / "pcdt.duckdb"
     with conectar(caminho) as conexao:
@@ -325,7 +325,7 @@ async def test_consulta_durante_coleta_avisa_em_vez_de_quebrar(tmp_path: Path) -
     try:
         assert escritor.stdout is not None
         assert escritor.stdout.readline().strip() == "aberto"
-        resposta = await consultar_protocolo("asma", caminho_db=str(servida))
+        resposta = await buscar_pcdt("asma", caminho_db=str(servida))
     finally:
         escritor.kill()
         escritor.wait()

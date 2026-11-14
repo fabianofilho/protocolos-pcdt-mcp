@@ -3,7 +3,7 @@
 ## Como reportar
 
 Não descreva a vulnerabilidade numa issue pública. Abra uma
-[issue](https://github.com/fabianofilho/protocolos-pcdt-mcp/issues/new) só com o título
+[issue](https://github.com/fabianofilho/galeno-mcp/issues/new) só com o título
 "Contato de segurança", sem detalhes, e o mantenedor responde combinando um canal
 privado. Depois, mande o problema, a versão ou o commit, e como reproduzir. Projeto
 mantido por uma pessoa: a resposta costuma sair em alguns dias.

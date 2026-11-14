@@ -8,14 +8,14 @@ import logging
 
 import typer
 
-from protocolos_pcdt_mcp.coleta.sync import coletar
-from protocolos_pcdt_mcp.config import carregar_config
-from protocolos_pcdt_mcp.llm.qwen_client import QwenClient
-from protocolos_pcdt_mcp.mcp_server.tools.pcdt import consultar_protocolo, resumir_conduta
-from protocolos_pcdt_mcp.store.db import conectar, reindexar_fts
-from protocolos_pcdt_mcp.store.troca import BaseSuspeita, clonar_para_construcao, publicar
+from galeno_mcp.coleta.sync import coletar
+from galeno_mcp.config import carregar_config
+from galeno_mcp.llm.qwen_client import QwenClient
+from galeno_mcp.mcp_server.tools.pcdt import buscar_pcdt, resumir_conduta
+from galeno_mcp.store.db import conectar, reindexar_fts
+from galeno_mcp.store.troca import BaseSuspeita, clonar_para_construcao, publicar
 
-app = typer.Typer(help="Administração do protocolos-pcdt-mcp", no_args_is_help=True)
+app = typer.Typer(help="Administração do galeno-mcp", no_args_is_help=True)
 
 
 @app.command()
@@ -70,7 +70,7 @@ def sync(
 def consultar(condicao: str) -> None:
     """Testa a consulta fora do MCP."""
     config = carregar_config()
-    resposta = asyncio.run(consultar_protocolo(condicao, caminho_db=str(config.duckdb_path)))
+    resposta = asyncio.run(buscar_pcdt(condicao, caminho_db=str(config.duckdb_path)))
     typer.echo(resposta.model_dump_json(indent=2))
 
 

@@ -20,6 +20,10 @@ class Config(BaseSettings):
     coleta_delay_segundos: float = Field(default=1.0, ge=0.0)
     log_level: str = Field(default="INFO")
 
+    # Chave da NCBI para buscar_literatura (PubMed), opcional: sem ela o rate
+    # limit é 3 requisições/s, suficiente para uma busca por vez. Com ela, 10/s.
+    pubmed_api_key: str | None = Field(default=None)
+
     # --- modo connector (servidor HTTP público) ---
     # Por padrão o servidor fala stdio: o cliente sobe o processo na máquina de
     # quem usa. Em "streamable-http" ele vira um servidor alcançável pela rede,

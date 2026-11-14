@@ -1,7 +1,7 @@
 [project]
-name = "protocolos-pcdt-mcp"
+name = "galeno-mcp"
 version = "0.1.0"
-description = "Servidor MCP local (stdio) que consulta os PCDTs vigentes da Conitec e resume a conduta com citação literal conferida"
+description = "Galeno: servidor MCP local (stdio) de contexto clínico, que consulta os PCDTs vigentes da Conitec e resume a conduta com citação literal conferida"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -19,8 +19,8 @@ dependencies = [
 ]
 
 [project.scripts]
-protocolos-pcdt-mcp = "protocolos_pcdt_mcp.mcp_server.server:main"
-pcdt-cli = "protocolos_pcdt_mcp.cli:app"
+galeno-mcp = "galeno_mcp.mcp_server.server:main"
+pcdt-cli = "galeno_mcp.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "respx>=0.22", "ruff>=0.8", "mypy>=1.13"]
@@ -30,7 +30,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/protocolos_pcdt_mcp"]
+packages = ["src/galeno_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -44,7 +44,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/protocolos_pcdt_mcp/cli.py" = ["B008"]
+"src/galeno_mcp/cli.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
